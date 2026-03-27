@@ -1,41 +1,27 @@
-# Prerequisites
+# Verilog/SystemVerilog simulation outputs
+*.vcd
+*.fst
+*.lxt
+*.vpd
+*.wlf
+*.ghw
+
+# Icarus Verilog build/runtime artifacts
+*.vvp
+cpu_sim
+simv
+
+# Verilator artifacts
+obj_dir/
+*.vlt
 *.d
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+# Coverage and logs
+coverage/
+*.log
 
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# debug information files
-*.dwo
+# Temporary/editor files
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
