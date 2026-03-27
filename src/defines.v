@@ -1,5 +1,6 @@
 // Opcode Definitions
 `define OP_MATH  4'b0000
+`define OP_M_EXT 4'b0001
 `define OP_MOV   4'b0101
 `define OP_LOAD  4'b0110
 `define OP_STORE 4'b0111
@@ -18,3 +19,8 @@
 `define FN_SRA   4'b1000
 `define FN_SLT   4'b1001
 `define FN_SLTU  4'b1010
+
+// Function Codes for OP_M_EXT (M-Extension)
+`define FN_MUL      4'b0000  // Multiply
+`define FN_DIV      4'b0001  // Division 
+`define FN_REM      4'b0010  // Remainder 

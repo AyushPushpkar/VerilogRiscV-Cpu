@@ -22,6 +22,7 @@ module alu #(
 )(
     input  [DATA_WIDTH-1:0] A,
     input  [DATA_WIDTH-1:0] B,
+    input  is_mul_div, // Enable signal from Level 1
     input  [OP_WIDTH-1:0]   opcode,
     output reg [DATA_WIDTH-1:0] result,
     output zero
@@ -33,20 +34,35 @@ module alu #(
 localparam SHIFT_WIDTH = $clog2(DATA_WIDTH);
 
 always @(*) begin
-    case(opcode)
-        `FN_ADD: result = A + B;
-        `FN_SUB: result = A - B;
-        `FN_AND: result = A & B;
-        `FN_OR:  result = A | B;
-        `FN_XOR: result = A ^ B;
-        `FN_MOV: result = B;
-        `FN_SLL: result = A << B[SHIFT_WIDTH-1:0];
-        `FN_SRL: result = A >> B[SHIFT_WIDTH-1:0];
-        `FN_SRA: result = $signed(A) >>> B[SHIFT_WIDTH-1:0];
-        `FN_SLT:  result = ($signed(A) < $signed(B)) ? {{DATA_WIDTH-1{1'b0}}, 1'b1} : {DATA_WIDTH{1'b0}};
-        `FN_SLTU: result = (A < B) ? {{DATA_WIDTH-1{1'b0}}, 1'b1} : {DATA_WIDTH{1'b0}};
-        default: result = {DATA_WIDTH{1'b0}};
-    endcase
+
+    if (is_mul_div) begin
+        
+        // M-EXTENSION LANE (Multiplication & Division) 
+        case(opcode)
+            `FN_MUL: result = A * B; 
+            `FN_DIV: result = (B != {DATA_WIDTH{1'b0}}) ? (A / B) : {DATA_WIDTH{1'b1}}; 
+            `FN_REM: result = (B != {DATA_WIDTH{1'b0}}) ? (A % B) : A; 
+            default: result = {DATA_WIDTH{1'b0}};
+        endcase
+    end else begin
+        
+        // BASE INTEGER LANE (RV32I) 
+        case(opcode)
+            `FN_ADD:  result = A + B; 
+            `FN_SUB:  result = A - B; 
+            `FN_AND:  result = A & B; 
+            `FN_OR:   result = A | B; 
+            `FN_XOR:  result = A ^ B; 
+            `FN_MOV:  result = B;
+            `FN_SLL:  result = A << B[SHIFT_WIDTH-1:0]; 
+            `FN_SRL:  result = A >> B[SHIFT_WIDTH-1:0]; 
+            `FN_SRA:  result = $signed(A) >>> B[SHIFT_WIDTH-1:0]; 
+            `FN_SLT:  result = ($signed(A) < $signed(B)) ? {{DATA_WIDTH-1{1'b0}}, 1'b1} : {DATA_WIDTH{1'b0}};
+            `FN_SLTU: result = (A < B) ? {{DATA_WIDTH-1{1'b0}}, 1'b1} : {DATA_WIDTH{1'b0}};
+            default:  result = {DATA_WIDTH{1'b0}};
+        endcase
+    end
+
 end
 
 assign zero = (result == {DATA_WIDTH{1'b0}});

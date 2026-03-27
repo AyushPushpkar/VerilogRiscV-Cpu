@@ -46,6 +46,13 @@ always @(*) begin
             alu_ctrl  = funct; // Pass the specific math (ADD, SUB, XOR, etc.)
         end
 
+        // M-Extension (Multiplication/Division)
+        `OP_M_EXT: begin
+            reg_write = 1;      // Enable saving the MUL/DIV result to RD
+            alu_src   = 0;      // M-Extension uses two registers (RS1, RS2)
+            alu_ctrl  = funct;   // Pass FN_MUL, FN_DIV, etc. to the Execution Unit
+        end
+
         // MOV Immediate (R[rd] = Immediate)
         `OP_MOV: begin 
             reg_write = 1; 

@@ -44,7 +44,11 @@ module cpu_top (
     wire [2:0] rs2    = instruction[17:15];
     wire [7:0] imm    = instruction[7:0];
 
-    // Control Unit Signals
+// Hierarchical Decoding Wires (Level 1)
+    wire is_mul_div;
+    wire is_base;
+
+    // Control Unit Signals (Level 2)
     wire reg_write, mem_read, mem_write, alu_src, jump, branch;
     wire [3:0] alu_ctrl;
 
@@ -88,6 +92,14 @@ module cpu_top (
         .instruction(instruction)
     );
 
+    // LEVEL 1 DECODER: Evaluates instruction immediately upon fetch
+    pre_decoder pre_dec (
+        .instruction(instruction),
+        .is_mul_div(is_mul_div),
+        .is_base(is_base)
+    );
+
+    // LEVEL 2 DECODER: Standard Control Unit
     control_unit cu (
         .opcode(opcode),
         .funct(funct),
@@ -114,6 +126,7 @@ module cpu_top (
     alu main_alu (
         .A(reg_read1),
         .B(alu_in_b), // From ALU Source MUX
+        .is_mul_div(is_mul_div), // Route Level 1 enable signal to ALU
         .opcode(alu_ctrl),
         .result(alu_result),
         .zero(alu_zero)
