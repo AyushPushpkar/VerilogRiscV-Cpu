@@ -1,0 +1,19 @@
+// Instruction 0: MOV R1, #10  (Opcode 5, Imm 0A)
+// CPU will put 10 into Register 1
+5020000A
+
+// Instruction 1: MOV R2, #5   (Opcode 5, Imm 05)
+// CPU will put 5 into Register 2
+50400005
+
+// Instruction 2: ADD R3, R1, R2 (Opcode 0, Funct 0, RD 3, RS1 1, RS2 2)
+// CPU will add R1+R2 and put the result (15) into R3
+0064A000
+
+// Instruction 3: STORE R3 -> [Address 100] (Opcode 7, RD=unused, RS1=3, RS2=unused, Imm=64)
+// CPU will save the number 15 into RAM at address 100 (64 in Hex)
+700C0064
+
+// Instruction 4: JMP #0 (Opcode 8, Imm 00)
+// CPU will loop back to the start forever
+80000000
