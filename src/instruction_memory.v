@@ -9,9 +9,9 @@
 //   Width: 32 bits per instruction (RISC-V style)
 //   Access: Combinational (no clock required)
 //
-// INSTRUCTION FORMAT (32-bit):
-//   [31:28] opcode | [27:24] funct | [23:21] rd | [20:18] rs1
-//   [17:15] rs2    | [7:0] immediate
+// IMMUTABLE INSTRUCTION FORMAT:
+//   [31:28] Reserved | [27:24] funct | [23:21] rs2 | [20:18] rs1 
+//   [17:15] rd       | [14:7]  imm   | [6:0] opcode
 //================================================================================
 // INPUT: address (8-bit)  | OUTPUT: instruction (32-bit)
 //================================================================================
@@ -34,7 +34,7 @@ module instruction_memory #(
     initial begin
         
         for (i = 0; i < (1<<ADDR_WIDTH); i = i + 1) begin
-            rom[i] = 32'h00000000; 
+            rom[i] = {INST_WIDTH{1'b0}};
         end
 
         // 2. Load your program
@@ -44,6 +44,7 @@ module instruction_memory #(
 
     // Asynchronous Read: The "Best" way for a beginner Single-Cycle CPU
     // The instruction is available to the Control Unit IMMEDIATELY
-    assign instruction = rom[address];
+    // Asynchronous Read: Shift address right by 2 to convert byte-address to word-index
+    assign instruction = rom[address >> 2];
 
 endmodule
