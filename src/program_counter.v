@@ -2,7 +2,7 @@
 // Program Counter (PC) - 8-bit CPU Component
 //================================================================================
 // Maintains current instruction address. Updates on posedge clk with
-// next_pc value. Supports sequential execution (+1) and jumps/branches.
+// next_pc value. Supports sequential execution (+4) and jumps/branches.
 // Asynchronous reset to 0.
 //
 // ARCHITECTURE:

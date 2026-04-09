@@ -5,7 +5,9 @@
 // reg_write (register write enable), mem_read/write (memory operations),
 // alu_src (register vs immediate), jump/branch (control flow).
 //
-// Instruction format: opcode[31:28] + funct[27:24] + fields + imm[7:0]
+// IMMUTABLE INSTRUCTION FORMAT:
+//   [31:28] Reserved | [27:24] funct | [23:21] rs2 | [20:18] rs1 
+//   [17:15] rd       | [14:7]  imm   | [6:0] opcode
 // Uses define constants (OP_MATH, OP_MOV, OP_LOAD, etc.) for opcodes.
 //================================================================================
 // OUTPUT SIGNALS:
@@ -18,7 +20,7 @@
 `include "defines.v"
 
 module control_unit(
-    input [3:0] opcode,
+    input [6:0] opcode,
     input [3:0] funct,
     output reg reg_write,
     output reg mem_read,

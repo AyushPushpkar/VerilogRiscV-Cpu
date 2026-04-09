@@ -23,7 +23,7 @@ module alu #(
     input  [DATA_WIDTH-1:0] A,
     input  [DATA_WIDTH-1:0] B,
     input  is_mul_div, // Enable signal from Level 1
-    input  [OP_WIDTH-1:0]   opcode,
+    input  [OP_WIDTH-1:0]   alu_operation_code,
     output reg [DATA_WIDTH-1:0] result,
     output zero
 );
@@ -38,7 +38,7 @@ always @(*) begin
     if (is_mul_div) begin
         
         // M-EXTENSION LANE (Multiplication & Division) 
-        case(opcode)
+        case(alu_operation_code)
             `FN_MUL: result = A * B; 
             `FN_DIV: result = (B != {DATA_WIDTH{1'b0}}) ? (A / B) : {DATA_WIDTH{1'b1}}; 
             `FN_REM: result = (B != {DATA_WIDTH{1'b0}}) ? (A % B) : A; 
@@ -47,7 +47,7 @@ always @(*) begin
     end else begin
         
         // BASE INTEGER LANE (RV32I) 
-        case(opcode)
+        case(alu_operation_code)
             `FN_ADD:  result = A + B; 
             `FN_SUB:  result = A - B; 
             `FN_AND:  result = A & B; 

@@ -5,6 +5,9 @@
 // the working module (Base ALU vs. M-Extension vs. future AI extensions).
 // This generates the 'is_mul_div' signal used to switch ALU lanes, 
 // shortening the critical path.
+//
+// NOTE: INSTR_WIDTH and OP_WIDTH are parameterized here only to match 
+// top-level instantiations, but they represent our immutable 32-bit ISA.
 //================================================================================
 
 `timescale 1ns/1ns
@@ -12,15 +15,15 @@
 
 module pre_decoder #(
     parameter INSTR_WIDTH = 32,
-    parameter OP_WIDTH = 4
+    parameter OP_WIDTH = 7
 )(
     input  [INSTR_WIDTH-1:0] instruction,
     output reg               is_mul_div, // High for OP_M_EXT
     output reg               is_base     // High for Base Integer operations
 );
 
-    // Extract opcode from the top bits (e.g., bits [31:28])
-    wire [OP_WIDTH-1:0] opcode = instruction[INSTR_WIDTH-1 : INSTR_WIDTH-OP_WIDTH];
+    // RISC-V Standard: Opcode is the bottom 7 bits [6:0]
+    wire [OP_WIDTH-1:0] opcode = instruction[OP_WIDTH-1 : 0];
 
     always @(*) begin
         // Default values to prevent latches
