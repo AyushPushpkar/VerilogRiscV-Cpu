@@ -1,7 +1,7 @@
 `timescale 1ns/1ns
 
-//TODO iverilog -I src/ -o cpu_sim src/*.v tb/*.v
-//TODO vvp cpu_sim
+//TODO iverilog -I src/ -o cpu_sim.vvp src/*.v tb/*.v
+//TODO vvp cpu_sim.vvp
 //TODO gtkwave cpu_sim.vcd
 
 module tb_cpu();

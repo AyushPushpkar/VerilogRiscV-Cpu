@@ -23,7 +23,8 @@ module alu #(
     input  [DATA_WIDTH-1:0] A,
     input  [DATA_WIDTH-1:0] B,
     input  is_mul_div, // Enable signal from Level 1
-    input  [OP_WIDTH-1:0]   alu_operation_code,
+    input  [2:0] funct3,
+    input  [6:0] funct7,
     output reg [DATA_WIDTH-1:0] result,
     output zero
 );
@@ -38,30 +39,75 @@ always @(*) begin
     if (is_mul_div) begin
         
         // M-EXTENSION LANE (Multiplication & Division) 
-        case(alu_operation_code)
+        case(funct3)
             `FN_MUL: result = A * B; 
             `FN_DIV: result = (B != {DATA_WIDTH{1'b0}}) ? (A / B) : {DATA_WIDTH{1'b1}}; 
             `FN_REM: result = (B != {DATA_WIDTH{1'b0}}) ? (A % B) : A; 
             default: result = {DATA_WIDTH{1'b0}};
         endcase
     end else begin
-        
-        // BASE INTEGER LANE (RV32I) 
-        case(alu_operation_code)
-            `FN_ADD:  result = A + B; 
-            `FN_SUB:  result = A - B; 
-            `FN_AND:  result = A & B; 
-            `FN_OR:   result = A | B; 
-            `FN_XOR:  result = A ^ B; 
-            `FN_MOV:  result = B;
-            `FN_SLL:  result = A << B[SHIFT_WIDTH-1:0]; 
-            `FN_SRL:  result = A >> B[SHIFT_WIDTH-1:0]; 
-            `FN_SRA:  result = $signed(A) >>> B[SHIFT_WIDTH-1:0]; 
-            `FN_SLT:  result = ($signed(A) < $signed(B)) ? {{DATA_WIDTH-1{1'b0}}, 1'b1} : {DATA_WIDTH{1'b0}};
-            `FN_SLTU: result = (A < B) ? {{DATA_WIDTH-1{1'b0}}, 1'b1} : {DATA_WIDTH{1'b0}};
-            default:  result = {DATA_WIDTH{1'b0}};
-        endcase
-    end
+
+    case(funct3)
+
+        // ADD / SUB
+        `FN_ADD_SUB:
+            if (funct7 == `FN_SUB)
+                result = A - B;
+            else
+                result = A + B;
+
+        // AND / ANDN
+        `FN_AND:
+            if (funct7 == `FN_B_EXT)
+                result = A & ~B;   // ANDN
+            else
+                result = A & B;
+
+        // OR / ORN
+        `FN_OR:
+            if (funct7 == `FN_B_EXT)
+                result = A | ~B;   // ORN
+            else
+                result = A | B;
+
+        // XOR / XNOR
+        `FN_XOR:
+            if (funct7 == `FN_B_EXT)
+                result = ~(A ^ B); // XNOR
+            else
+                result = A ^ B;
+
+        // SHIFT LEFT / ROTATE LEFT
+        `FN_SLL:
+            if (funct7 == `FN_ROT)
+                result = (A << B[SHIFT_WIDTH-1:0]) |
+                         (A >> (DATA_WIDTH - B[SHIFT_WIDTH-1:0])); // ROL
+            else
+                result = A << B[SHIFT_WIDTH-1:0];
+
+        // SHIFT RIGHT / ROTATE RIGHT / SRA
+        `FN_SRL_SRA:
+            if (funct7 == `FN_SUB)
+                result = $signed(A) >>> B[SHIFT_WIDTH-1:0]; // SRA
+            else if (funct7 == `FN_ROT)
+                result = (A >> B[SHIFT_WIDTH-1:0]) |
+                         (A << (DATA_WIDTH - B[SHIFT_WIDTH-1:0])); // ROR
+            else
+                result = A >> B[SHIFT_WIDTH-1:0]; // SRL
+
+        // SLT
+        `FN_SLT:
+            result = ($signed(A) < $signed(B)) ? 1 : 0;
+
+        // SLTU
+        `FN_SLTU:
+            result = (A < B) ? 1 : 0;
+
+        default:
+            result = {DATA_WIDTH{1'b0}};
+    endcase
+
+end
 
 end
 

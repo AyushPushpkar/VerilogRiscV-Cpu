@@ -48,8 +48,9 @@ module cpu_top #(
     wire [2:0] rd     = instruction[17:15]; // 3-bit Destination Reg
     wire [2:0] rs1    = instruction[20:18]; // 3-bit Source Reg 1
     wire [2:0] rs2    = instruction[23:21]; // 3-bit Source Reg 2
-    wire [3:0] funct  = instruction[27:24]; // 4-bit ALU Function
-
+    wire [2:0] funct3  = instruction[14:12]; // 3-bit ALU Function
+    wire [6:0] funct7  = instruction[31:25]; // 7-bit ALU Function (for MUL/DIV)
+    
     // Safely zero-pads your 8-bit immediate up to the datapath width
     wire [DATA_WIDTH-1:0] imm = {{DATA_WIDTH-8{1'b0}}, imm8};
 
@@ -126,7 +127,7 @@ module cpu_top #(
     // LEVEL 2 DECODER: Standard Control Unit
     control_unit cu (
         .opcode(opcode),
-        .funct(funct),
+        .funct7_out(funct7),
         .reg_write(reg_write),
         .mem_read(mem_read),
         .mem_write(mem_write),

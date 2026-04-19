@@ -23,28 +23,55 @@ module pre_decoder #(
 );
 
     // RISC-V Standard: Opcode is the bottom 7 bits [6:0]
-    wire [OP_WIDTH-1:0] opcode = instruction[OP_WIDTH-1 : 0];
+    wire [OP_WIDTH-1:0] opcode = instruction[6:0];
+    wire [6:0] funct7 = instruction[31:25];
 
     always @(*) begin
-        // Default values to prevent latches
-        is_mul_div = 1'b0;
-        is_base    = 1'b0;
+    // Default values
+    is_mul_div = 1'b0;
+    is_base    = 1'b0;
 
-        case (opcode)
-            `OP_M_EXT: begin
-                is_mul_div = 1'b1;
-            end
-            
-            `OP_MATH, `OP_MOV, `OP_LOAD, `OP_STORE: begin
-                is_base = 1'b1;
-            end
-            
-            default: begin
-                // JMP, BEQ, or invalid opcodes don't need the ALU math lanes
-                is_mul_div = 1'b0;
-                is_base    = 1'b0;
-            end
-        endcase
-    end
+    case (opcode)
+
+        // ==========================
+        // R-TYPE (ALU OPERATIONS)
+        // ==========================
+        `OP_OP: begin
+            if (funct7 == `FN_M_EXT)
+                is_mul_div = 1'b1;   // MUL, DIV, REM
+            else
+                is_base = 1'b1;      // ADD, SUB, AND, OR, etc.
+        end
+
+        // ==========================
+        // I-TYPE ALU (ADDI, ANDI...)
+        // ==========================
+        `OP_OP_IMM: begin
+            is_base = 1'b1;
+        end
+
+        // ==========================
+        // LOAD / STORE
+        // ==========================
+        `OP_LOAD,
+        `OP_STORE: begin
+            is_base = 1'b1;
+        end
+
+        // ==========================
+        // BRANCH / JUMP
+        // ==========================
+        `OP_BRANCH,
+        `OP_JAL: begin
+            is_base = 1'b0; // Not ALU-heavy
+        end
+
+        default: begin
+            is_mul_div = 1'b0;
+            is_base    = 1'b0;
+        end
+
+    endcase
+end
 
 endmodule

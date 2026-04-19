@@ -21,78 +21,159 @@
 
 module control_unit(
     input [6:0] opcode,
-    input [3:0] funct,
+    input [2:0] funct3,
+    input [6:0] funct7,
+    output [6:0] funct7_out,
     output reg reg_write,
     output reg mem_read,
     output reg mem_write,
     output reg alu_src,
     output reg jump,
     output reg branch,
-    output reg [3:0] alu_ctrl
+    output reg [2:0] alu_ctrl
 );
 
 always @(*) begin
-    // Default values to prevent latches
-    reg_write = 0;
-    mem_read  = 0;
-    mem_write = 0;
-    alu_src   = 0;
-    jump      = 0;
-    branch    = 0;
-    alu_ctrl  = `FN_ADD; // Default to ADD logic
+    // Defaults
+    reg_write  = 0;
+    mem_read   = 0;
+    mem_write  = 0;
+    alu_src    = 0;
+    jump       = 0;
+    jalr       = 0;
+    branch     = 0;
+    alu_ctrl   = 3'b000;        // Default = ADD
+    funct7_out = 7'b0000000;
 
-    case(opcode)
-        // Register-to-Register Math
-        `OP_MATH: begin 
-            reg_write = 1; 
-            alu_ctrl  = funct; // Pass the specific math (ADD, SUB, XOR, etc.)
-        end
+    // case(alu_ctrl)
 
-        // M-Extension (Multiplication/Division)
-        `OP_M_EXT: begin
-            reg_write = 1;      // Enable saving the MUL/DIV result to RD
-            alu_src   = 0;      // M-Extension uses two registers (RS1, RS2)
-            alu_ctrl  = funct;   // Pass FN_MUL, FN_DIV, etc. to the Execution Unit
-        end
+    //     // ==========================
+    //     // R-TYPE
+    //     // ==========================
+    //     `OP_OP: begin
+    //         reg_write  = 1;
+    //         alu_ctrl   = funct3;     // pass group
+    //         funct7_out = funct7;     // pass variant
+    //     end
 
-        // MOV Immediate (R[rd] = Immediate)
-        `OP_MOV: begin 
-            reg_write = 1; 
-            alu_src   = 1; 
-            alu_ctrl  = `FN_ADD; // Just adding 0+Imm in the ALU
-        end
+    //     // ==========================
+    //     // I-TYPE
+    //     // ==========================
+    //     `OP_OP_IMM: begin
+    //         reg_write  = 1;
+    //         alu_src    = 1;
+    //         alu_ctrl   = funct3;
+    //         funct7_out = funct7; // needed for SRAI
+    //     end
 
-        // LOAD from Memory
-        `OP_LOAD: begin 
-            reg_write = 1; 
-            mem_read  = 1; 
-            alu_src   = 1; 
-            alu_ctrl  = `FN_ADD; // Calculate address: Reg + Imm
-        end
+    //     // ==========================
+    //     // LOAD
+    //     // ==========================
+    //     `OP_LOAD: begin
+    //         reg_write = 1;
+    //         mem_read  = 1;
+    //         alu_src   = 1;
+    //         alu_ctrl  = 3'b000; // ADD for address
+    //     end
 
-        // STORE to Memory
-        `OP_STORE: begin 
-            mem_write = 1; 
-            alu_src   = 1; 
-            alu_ctrl  = `FN_ADD; // Calculate address: Reg + Imm
-        end
+    //     // ==========================
+    //     // STORE
+    //     // ==========================
+    //     `OP_STORE: begin
+    //         mem_write = 1;
+    //         alu_src   = 1;
+    //         alu_ctrl  = 3'b000;
+    //     end
 
-        // Unconditional Jump
-        `OP_JMP: begin 
-            jump = 1; 
-        end
+    //     // ==========================
+    //     // BRANCH
+    //     // ==========================
+    //     `OP_BRANCH: begin
+    //         branch   = 1;
+    //         alu_ctrl = funct3; // BEQ/BNE logic later
+    //     end
 
-        // Branch if Equal
-        `OP_BEQ: begin 
-            branch   = 1; 
-            alu_ctrl = `FN_SUB; // Subtract to check if Zero flag triggers
-        end
+    //     // ==========================
+    //     // JAL
+    //     // ==========================
+    //     `OP_JAL: begin
+    //         reg_write = 1;
+    //         jump      = 1;
+    //     end
 
-        default: begin
-            // Safety fallback
-            reg_write = 0;
-        end
-    endcase
+    //     // ==========================
+    //     // JALR
+    //     // ==========================
+    //     `OP_JALR: begin
+    //         reg_write = 1;
+    //         jalr      = 1;
+    //         alu_src   = 1;
+    //         alu_ctrl  = 3'b000;
+    //     end
+
+    //     // ==========================
+    //     // LUI
+    //     // ==========================
+    //     `OP_LUI: begin
+    //         reg_write = 1;
+    //         alu_src   = 1;
+    //     end
+
+    //     // ==========================
+    //     // AUIPC
+    //     // ==========================
+    //     `OP_AUIPC: begin
+    //         reg_write = 1;
+    //         alu_src   = 1;
+    //         alu_ctrl  = 3'b000;
+    //     end
+
+    // endcase
+ case(alu_ctrl)
+//add/sub/mul
+3'b000: begin
+    if (funct7_out == `FN_SUB)
+        result = A - B;
+    else if (funct7_out == `FN_M_EXT)
+        result = A * B;
+    else
+        result = A + B;
+end   
+//xor/xnor/div
+3'b100: begin
+    if (funct7_out == `FN_M_EXT)
+        result = A / B;
+    else if (funct7_out == `FN_SUB)
+        result = ~(A ^ B); // XNOR
+    else
+        result = A ^ B;
+end
+//or/orn/rem
+3'b110: begin
+    if (funct7_out == `FN_M_EXT)
+        result = A % B;
+    else if (funct7_out == `FN_SUB)
+        result = A | ~B; // ORN
+    else
+        result = A | B;
+end
+//and/andn
+3'b111: begin
+    if (funct7_out == `FN_SUB)
+        result = A & ~B;
+    else
+        result = A & B;
+end
+//shift =rotate
+3'b101: begin
+    if (funct7_out == `FN_ROT)
+        result = (A >> B[2:0]) | (A << (8 - B[2:0]));
+    else if (funct7_out == `FN_SUB)
+        result = $signed(A) >>> B[2:0];
+    else
+        result = A >> B[2:0];
 end
 
+endcase
+end
 endmodule
