@@ -1,50 +1,93 @@
 //================================================================================
-// Instruction Memory (ROM) - 8-bit CPU Component
+// Instruction Memory (ROM) - RV32I Style Fetch Memory
 //================================================================================
-// Read-only instruction storage. Provides combinational (immediate) access.
-// Initialized with zeros then loads program from "program.mem" file.
+// Read-only instruction memory for a single-cycle RV32-style CPU.
 //
-// ARCHITECTURE:
-//   Capacity: 256 instructions (8-bit address space)
-//   Width: 32 bits per instruction (RISC-V style)
-//   Access: Combinational (no clock required)
+// FEATURES:
+//   - 32-bit architectural address input
+//   - 32-bit instruction output
+//   - Combinational read for single-cycle fetch
+//   - Program initialized from "program.mem"
+//   - Explicit instruction misalignment detection
+//   - Explicit local-ROM out-of-range detection
+//   - Safe default output for invalid fetches
 //
-// IMMUTABLE INSTRUCTION FORMAT:
-//   [31:28] Reserved | [27:24] funct | [23:21] rs2 | [20:18] rs1 
-//   [17:15] rd       | [14:7]  imm   | [6:0] opcode
-//================================================================================
-// INPUT: address (8-bit)  | OUTPUT: instruction (32-bit)
+// DESIGN NOTES:
+//   - The CPU uses a full 32-bit architectural PC.
+//   - This ROM may be much smaller than the full address space.
+//   - Only the low address bits needed to index the local ROM are used.
+//   - Misaligned instruction fetches are flagged.
+//   - Out-of-range fetches are flagged.
+//   - This module does not implement traps/exceptions by itself.
 //================================================================================
 
 `timescale 1ns/1ns
 
 module instruction_memory #(
-    parameter ADDR_WIDTH = 8,
-    parameter INST_WIDTH = 32 // Matches our RISC-V style layout
+    parameter ADDR_WIDTH = 10,
+    parameter INST_WIDTH = 32,
+    parameter PC_WIDTH   = 32
 )(
-    input [ADDR_WIDTH-1:0] address,
-    output [INST_WIDTH-1:0] instruction
+    input  [PC_WIDTH-1:0]   address,              // Architectural byte address
+    output [INST_WIDTH-1:0] instruction,
+    output                  instr_misaligned,
+    output                  instr_addr_oob
 );
 
-    // 256 entries, each 32 bits wide
-    reg [INST_WIDTH-1:0] rom [0:(1<<ADDR_WIDTH)-1];
+    //========================================================================
+    // MEMORY DECLARATION
+    //========================================================================
+    // ROM stores 32-bit instructions.
+    // Total byte span covered by this local ROM = 2^ADDR_WIDTH bytes.
+    // Word count = 2^(ADDR_WIDTH-2).
+    localparam integer ROM_DEPTH      = (1 << (ADDR_WIDTH - 2));
+    localparam integer ROM_BYTE_SPAN  = (1 << ADDR_WIDTH);
 
-    // 1. Initialize memory with 0s to avoid 'X' states in GTKWave
+    reg [INST_WIDTH-1:0] rom [0:ROM_DEPTH-1];
+
+    //========================================================================
+    // INITIALIZATION
+    //========================================================================
     integer i;
     initial begin
-        
-        for (i = 0; i < (1<<ADDR_WIDTH); i = i + 1) begin
-            rom[i] = {INST_WIDTH{1'b0}};
-        end
+        for (i = 0; i < ROM_DEPTH; i = i + 1)
+            rom[i] = 32'b0;
 
-        // 2. Load your program
-        // This will look for "program.mem" in your project folder
         $readmemh("program.mem", rom);
     end
 
-    // Asynchronous Read: The "Best" way for a beginner Single-Cycle CPU
-    // The instruction is available to the Control Unit IMMEDIATELY
-    // Asynchronous Read: Shift address right by 2 to convert byte-address to word-index
-    assign instruction = rom[address >> 2];
+    //========================================================================
+    // MISALIGNMENT DETECTION
+    //========================================================================
+    // RV32I (without compressed instructions) expects 4-byte aligned fetches.
+    assign instr_misaligned = |address[1:0];
+
+    //========================================================================
+    // LOCAL ROM OUT-OF-RANGE DETECTION
+    //========================================================================
+    // The local ROM only covers addresses:
+    //   0 to ROM_BYTE_SPAN - 1
+    //
+    // Any fetch outside this local byte span is flagged as out-of-range.
+    assign instr_addr_oob = (address >= ROM_BYTE_SPAN);
+
+    //========================================================================
+    // LOCAL ROM INDEXING
+    //========================================================================
+    // The architectural PC is 32-bit, but the local ROM is smaller.
+    // Use low address bits [ADDR_WIDTH-1:2] as the word index.
+    wire [ADDR_WIDTH-3:0] word_index;
+    assign word_index = address[ADDR_WIDTH-1:2];
+
+    //========================================================================
+    // SAFE FETCH
+    //========================================================================
+    // Return a safe default word on:
+    //   - misaligned instruction fetch
+    //   - out-of-range instruction fetch
+    //
+    // Output 0 is a safe default word, not a standards-defined NOP encoding.
+    assign instruction = (instr_misaligned || instr_addr_oob) ? 32'b0
+                                                              : rom[word_index];
 
 endmodule
