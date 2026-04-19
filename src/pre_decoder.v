@@ -8,14 +8,14 @@
 //   - Intended for early instruction grouping, monitoring, or future pipeline use
 //
 // CLASSIFICATION OUTPUTS:
-//   is_mul_div       : RV32M OP-class instruction
-//   is_memory        : Any load/store instruction
-//   is_load          : RV32I load instruction
-//   is_store         : RV32I store instruction
-//   is_control_flow  : Any branch/jump instruction
-//   is_branch        : Conditional branch
-//   is_jump          : JAL or JALR
-//   illegal_predecode: Obvious unsupported/illegal opcode/form at predecode level
+//   is_mul_div        : RV32M OP-class instruction
+//   is_memory         : Any load/store instruction
+//   is_load           : RV32I load instruction
+//   is_store          : RV32I store instruction
+//   is_control_flow   : Any branch/jump instruction
+//   is_branch         : Conditional branch
+//   is_jump           : JAL or JALR
+//   illegal_predecode : Obvious unsupported/illegal opcode/form at predecode level
 //
 // DESIGN NOTES:
 //   - This is a lightweight classifier, not a full control decoder
@@ -44,6 +44,7 @@ module pre_decoder #(
 
     //========================================================================
     // FIELD EXTRACTION
+    // RISC-V Standard: opcode [6:0], funct3 [14:12], funct7 [31:25]
     //========================================================================
     wire [OP_WIDTH-1:0] opcode = instruction[6:0];
     wire [2:0]          funct3 = instruction[14:12];
@@ -53,13 +54,13 @@ module pre_decoder #(
         //====================================================================
         // DEFAULTS
         //====================================================================
-        is_mul_div       = 1'b0;
-        is_memory        = 1'b0;
-        is_load          = 1'b0;
-        is_store         = 1'b0;
-        is_control_flow  = 1'b0;
-        is_branch        = 1'b0;
-        is_jump          = 1'b0;
+        is_mul_div        = 1'b0;
+        is_memory         = 1'b0;
+        is_load           = 1'b0;
+        is_store          = 1'b0;
+        is_control_flow   = 1'b0;
+        is_branch         = 1'b0;
+        is_jump           = 1'b0;
         illegal_predecode = 1'b0;
 
         //====================================================================
@@ -82,10 +83,7 @@ module pre_decoder #(
                     `LD_LHU: begin
                         // valid load subtype
                     end
-
-                    default: begin
-                        illegal_predecode = 1'b1;
-                    end
+                    default: illegal_predecode = 1'b1;
                 endcase
             end
 
@@ -102,10 +100,7 @@ module pre_decoder #(
                     `ST_SW: begin
                         // valid store subtype
                     end
-
-                    default: begin
-                        illegal_predecode = 1'b1;
-                    end
+                    default: illegal_predecode = 1'b1;
                 endcase
             end
 
@@ -125,10 +120,7 @@ module pre_decoder #(
                     `BR_BGEU: begin
                         // valid branch subtype
                     end
-
-                    default: begin
-                        illegal_predecode = 1'b1;
-                    end
+                    default: illegal_predecode = 1'b1;
                 endcase
             end
 
@@ -162,13 +154,8 @@ module pre_decoder #(
                         `FN_DIV,
                         `FN_DIVU,
                         `FN_REM,
-                        `FN_REMU: begin
-                            is_mul_div = 1'b1;
-                        end
-
-                        default: begin
-                            illegal_predecode = 1'b1;
-                        end
+                        `FN_REMU: is_mul_div = 1'b1;
+                        default:  illegal_predecode = 1'b1;
                     endcase
                 end
                 else if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA)) begin
@@ -191,9 +178,7 @@ module pre_decoder #(
             //================================================================
             // UNSUPPORTED / ILLEGAL OPCODE
             //================================================================
-            default: begin
-                illegal_predecode = 1'b1;
-            end
+            default: illegal_predecode = 1'b1;
 
         endcase
     end

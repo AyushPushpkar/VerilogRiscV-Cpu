@@ -61,14 +61,9 @@ module alu #(
     //========================================================================
     // MULTIPLY INTERMEDIATES
     //========================================================================
-    wire signed [2*DATA_WIDTH-1:0] mul_ss =
-        $signed(A) * $signed(B);
-
-    wire        [2*DATA_WIDTH-1:0] mul_uu =
-        A * B;
-
-    wire signed [2*DATA_WIDTH-1:0] mul_su =
-        $signed(A) * $signed({1'b0, B});
+    wire signed [2*DATA_WIDTH-1:0] mul_ss = $signed(A) * $signed(B);
+    wire        [2*DATA_WIDTH-1:0] mul_uu = A * B;
+    wire signed [2*DATA_WIDTH-1:0] mul_su = $signed(A) * $signed({1'b0, B});
 
     //========================================================================
     // MAIN EXECUTION LOGIC
@@ -85,83 +80,58 @@ module alu #(
                 //============================================================
                 // MULTIPLY FAMILY
                 //============================================================
-                `FN_MUL: begin
-                    result = mul_ss[DATA_WIDTH-1:0];
-                end
-
-                `FN_MULH: begin
-                    result = mul_ss[2*DATA_WIDTH-1:DATA_WIDTH];
-                end
-
-                `FN_MULHSU: begin
-                    result = mul_su[2*DATA_WIDTH-1:DATA_WIDTH];
-                end
-
-                `FN_MULHU: begin
-                    result = mul_uu[2*DATA_WIDTH-1:DATA_WIDTH];
-                end
+                `FN_MUL:    result = mul_ss[DATA_WIDTH-1:0];
+                `FN_MULH:   result = mul_ss[2*DATA_WIDTH-1:DATA_WIDTH];
+                `FN_MULHSU: result = mul_su[2*DATA_WIDTH-1:DATA_WIDTH];
+                `FN_MULHU:  result = mul_uu[2*DATA_WIDTH-1:DATA_WIDTH];
 
                 //============================================================
                 // DIVISION FAMILY
+                // RV32M rules:
+                //   divisor = 0      -> quotient = all 1s
+                //   INT_MIN / -1     -> INT_MIN
                 //============================================================
                 `FN_DIV: begin
-                    // RV32M rules:
-                    //   divisor = 0        -> quotient = -1 (all 1s)
-                    //   INT_MIN / -1       -> INT_MIN
-                    if (B == {DATA_WIDTH{1'b0}}) begin
+                    if (B == {DATA_WIDTH{1'b0}})
                         result = {DATA_WIDTH{1'b1}};
-                    end
-                    else if ((A == INT_MIN) && (B == {DATA_WIDTH{1'b1}})) begin
+                    else if ((A == INT_MIN) && (B == {DATA_WIDTH{1'b1}}))
                         result = INT_MIN;
-                    end
-                    else begin
+                    else
                         result = A_s / B_s;
-                    end
                 end
 
                 `FN_DIVU: begin
-                    // RV32M rules:
-                    //   divisor = 0 -> quotient = all 1s
-                    if (B == {DATA_WIDTH{1'b0}}) begin
+                    // RV32M: divisor = 0 -> quotient = all 1s
+                    if (B == {DATA_WIDTH{1'b0}})
                         result = {DATA_WIDTH{1'b1}};
-                    end
-                    else begin
+                    else
                         result = A / B;
-                    end
                 end
 
                 //============================================================
                 // REMAINDER FAMILY
+                // RV32M rules:
+                //   divisor = 0      -> remainder = dividend
+                //   INT_MIN % -1     -> 0
                 //============================================================
                 `FN_REM: begin
-                    // RV32M rules:
-                    //   divisor = 0        -> remainder = dividend
-                    //   INT_MIN % -1       -> 0
-                    if (B == {DATA_WIDTH{1'b0}}) begin
+                    if (B == {DATA_WIDTH{1'b0}})
                         result = A;
-                    end
-                    else if ((A == INT_MIN) && (B == {DATA_WIDTH{1'b1}})) begin
+                    else if ((A == INT_MIN) && (B == {DATA_WIDTH{1'b1}}))
                         result = {DATA_WIDTH{1'b0}};
-                    end
-                    else begin
+                    else
                         result = A_s % B_s;
-                    end
                 end
 
                 `FN_REMU: begin
-                    // RV32M rules:
-                    //   divisor = 0 -> remainder = dividend
-                    if (B == {DATA_WIDTH{1'b0}}) begin
+                    // RV32M: divisor = 0 -> remainder = dividend
+                    if (B == {DATA_WIDTH{1'b0}})
                         result = A;
-                    end
-                    else begin
+                    else
                         result = A % B;
-                    end
                 end
 
-                default: begin
-                    result = {DATA_WIDTH{1'b0}};
-                end
+                default: result = {DATA_WIDTH{1'b0}};
             endcase
         end
 
@@ -173,7 +143,6 @@ module alu #(
 
                 //============================================================
                 // ADD / SUB
-                // Valid funct7:
                 //   F7_BASE    -> ADD
                 //   F7_SUB_SRA -> SUB
                 //============================================================
@@ -186,27 +155,23 @@ module alu #(
                 end
 
                 //============================================================
-                // SHIFT LEFT
-                // Valid funct7:
-                //   F7_BASE -> SLL / SLLI
+                // SHIFT LEFT — SLL / SLLI
+                //   F7_BASE -> SLL
+                //   F7_ROT  -> ROL (B-extension)
                 //============================================================
                 `FN_SLL: begin
-                    case(funct7)
-                        `F7_BASE:begin
-                            result = A << B[SHIFT_WIDTH-1:0];
+                    case (funct7)
+                        `F7_BASE: result = A << B[SHIFT_WIDTH-1:0];
+
+                        `F7_ROT: begin
+                            if (B[SHIFT_WIDTH-1:0] == 0)
+                                result = A;
+                            else
+                                result = (A << B[SHIFT_WIDTH-1:0]) |
+                                         (A >> (DATA_WIDTH - B[SHIFT_WIDTH-1:0]));
                         end
 
-                        //B-extension :ROL
-                            `F7_ROT: begin
-                                if (B[SHIFT_WIDTH-1:0] == 0) 
-                                    result = A;
-                                    else
-                                      result = (A << B[SHIFT_WIDTH-1:0]) |
-                                        (A >> (DATA_WIDTH - B[SHIFT_WIDTH-1:0]));
-                                end
-                        default: begin
-                            result = {DATA_WIDTH{1'b0}};
-                        end
+                        default: result = {DATA_WIDTH{1'b0}};
                     endcase
                 end
 
@@ -234,90 +199,67 @@ module alu #(
 
                 //============================================================
                 // XOR
+                //   F7_BASE -> XOR
+                //   F7_XNOR -> XNOR (B-extension)
                 //============================================================
                 `FN_XOR: begin
                     case (funct7)
-                        `F7_BASE: begin
-                            result = A ^ B;
-                        end
-                        //B-extension :XNOR
-                        `F7_XNOR: begin
-                            result = ~(A ^ B);
-                        end
-                        default: begin
-                            result = {DATA_WIDTH{1'b0}};
-                        end
+                        `F7_BASE: result = A ^ B;
+                        `F7_XNOR: result = ~(A ^ B);
+                        default:  result = {DATA_WIDTH{1'b0}};
                     endcase
                 end
 
                 //============================================================
-                // SHIFT RIGHT
-                // Valid funct7:
-                //   F7_BASE    -> SRL / SRLI
-                //   F7_SUB_SRA -> SRA / SRAI
+                // SHIFT RIGHT — SRL / SRLI / SRA / SRAI
+                //   F7_BASE    -> SRL
+                //   F7_SUB_SRA -> SRA
+                //   F7_ROT     -> ROR (B-extension)
                 //============================================================
                 `FN_SRL_SRA: begin
                     case (funct7)
-                        `F7_BASE: begin
-                            result = A >> B[SHIFT_WIDTH-1:0];
-                        end
+                        `F7_BASE:    result = A >> B[SHIFT_WIDTH-1:0];
+                        `F7_SUB_SRA: result = A_s >>> B[SHIFT_WIDTH-1:0];
 
-                        `F7_SUB_SRA: begin
-                            result = A_s >>> B[SHIFT_WIDTH-1:0];
-                        end
-                    //B-extension : ROR
                         `F7_ROT: begin
-                            if (B[SHIFT_WIDTH-1:0] == 0) 
+                            if (B[SHIFT_WIDTH-1:0] == 0)
                                 result = A;
                             else
-                                result = (A >> B[SHIFT_WIDTH-1:0]) 
-                                    | (A << (DATA_WIDTH - B[SHIFT_WIDTH-1:0]));
+                                result = (A >> B[SHIFT_WIDTH-1:0]) |
+                                         (A << (DATA_WIDTH - B[SHIFT_WIDTH-1:0]));
                         end
-                        default: begin
-                            result = {DATA_WIDTH{1'b0}};
-                        end
+
+                        default: result = {DATA_WIDTH{1'b0}};
                     endcase
                 end
 
                 //============================================================
                 // OR
+                //   F7_BASE -> OR
+                //   F7_ORN  -> ORN (B-extension)
                 //============================================================
                 `FN_OR: begin
-                  case(funct7)
-                  `F7_BASE: begin
-                    result = A | B; 
-                    end
-                    //B-extension : ORN
-                    `F7_ORN: begin
-                        result = A | ~B;
-                    end
-                    default: begin
-                        result = {DATA_WIDTH{1'b0}};
-                    end
-                  endcase
+                    case (funct7)
+                        `F7_BASE: result = A | B;
+                        `F7_ORN:  result = A | ~B;
+                        default:  result = {DATA_WIDTH{1'b0}};
+                    endcase
                 end
 
                 //============================================================
                 // AND
+                //   F7_BASE -> AND
+                //   F7_ANDN -> ANDN (B-extension)
                 //============================================================
                 `FN_AND: begin
                     case (funct7)
-                        `F7_BASE: begin
-                            result = A & B;
-                        end
-                        //B-extension : ANDN
-                        `F7_ANDN: begin
-                            result = A & ~B;
-                        end
-                        default: begin
-                            result = {DATA_WIDTH{1'b0}};
-                        end
+                        `F7_BASE: result = A & B;
+                        `F7_ANDN: result = A & ~B;
+                        default:  result = {DATA_WIDTH{1'b0}};
                     endcase
                 end
 
-                default: begin
-                    result = {DATA_WIDTH{1'b0}};
-                end
+                default: result = {DATA_WIDTH{1'b0}};
             endcase
         end
     end
