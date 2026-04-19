@@ -318,6 +318,52 @@ module control_unit(
             end
 
         endcase
-    end
 
+        case(alu_ctrl)
+//add/sub/mul
+3'b000: begin
+    if (funct7_out == `FN_SUB)
+        result = A - B;
+    else if (funct7_out == `FN_M_EXT)
+        result = A * B;
+    else
+        result = A + B;
+end   
+//xor/xnor/div
+3'b100: begin
+    if (funct7_out == `FN_M_EXT)
+        result = A / B;
+    else if (funct7_out == `FN_SUB)
+        result = ~(A ^ B); // XNOR
+    else
+        result = A ^ B;
+end
+//or/orn/rem
+3'b110: begin
+    if (funct7_out == `FN_M_EXT)
+        result = A % B;
+    else if (funct7_out == `FN_SUB)
+        result = A | ~B; // ORN
+    else
+        result = A | B;
+end
+//and/andn
+3'b111: begin
+    if (funct7_out == `FN_SUB)
+        result = A & ~B;
+    else
+        result = A & B;
+end
+//shift =rotate
+3'b101: begin
+    if (funct7_out == `FN_ROT)
+        result = (A >> B[2:0]) | (A << (8 - B[2:0]));
+    else if (funct7_out == `FN_SUB)
+        result = $signed(A) >>> B[2:0];
+    else
+        result = A >> B[2:0];
+end
+
+endcase
+    end 
 endmodule
