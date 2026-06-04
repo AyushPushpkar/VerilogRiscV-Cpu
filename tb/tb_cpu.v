@@ -9,7 +9,7 @@ module tb_cpu();
     reg reset;
     
     // Wire to capture the MMIO output from the CPU
-    wire [7:0] out_port; 
+    wire [31:0] out_port; 
 
     // Instantiate the CPU
     cpu_top uut (
@@ -44,7 +44,7 @@ module tb_cpu();
     // Whenever the CPU writes to address 255, this will print to your console!
     always @(out_port) begin
         // Ignore the initial zero state at boot
-        if (out_port != 8'b0) begin 
+        if (out_port != 32'b0) begin 
             $display("[%0t ns] MMIO WRITE DETECTED: Hardware Output = %b (Hex: %h)", $time, out_port, out_port);
         end
     end
