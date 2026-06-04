@@ -1,18 +1,8 @@
-// Initialize MMIO address (255) in R7
-MOV R7 255
-
-// Initialize LED pattern (170) in R1
-MOV R1 170
-
-// Inversion mask (255) in R2
-MOV R2 255
-
-LOOP:
-    // Write pattern to MMIO
-    STORE R1 R7
-    
-    // Invert the bits
-    XOR R1 R1 R2
-    
-    // Loop infinitely
-    JMP LOOP
+ADDI R1, R0, 12
+ADDI R2, R0, 10
+ADDI R8, R0, 11
+ANDN R3, R8, R2
+ORN  R4, R1, R2
+XNOR R5, R1, R2
+ROL  R6, R1, R2
+ROR  R7, R1, R2

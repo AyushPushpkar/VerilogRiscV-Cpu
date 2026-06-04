@@ -99,20 +99,45 @@ module control_unit(
                     `FN_XOR,
                     `FN_OR,
                     `FN_AND: begin
-                        if ((funct7 == `F7_BASE) || (funct7 == `F7_M_EXT)) begin
-                            reg_write  = 1'b1;
-                            alu_ctrl   = funct3;
-                            funct7_out = funct7;
-                        end
-                        else begin
-                            illegal_instr = 1'b1;
-                        end
+                         if (
+                             // Normal RV32I operations
+                            (funct7 == `F7_BASE) ||
+
+                           // RV32M operations
+                           (funct7 == `F7_M_EXT) ||
+
+                         // B-extension: ANDN
+                           ((funct7 == `F7_ANDN) && (funct3 == `FN_AND)) ||
+
+                           // B-extension: ORN
+                       ((funct7 == `F7_ORN) && (funct3 == `FN_OR)) ||
+
+                       // B-extension: XNOR
+                      ((funct7 == `F7_XNOR) && (funct3 == `FN_XOR)) ||
+
+                      // B-extension: ROL
+                    ((funct7 == `F7_ROT) && (funct3 == `FN_SLL))
+                     ) begin
+                     reg_write  = 1'b1;
+                     alu_ctrl   = funct3;
+                   funct7_out = funct7;
                     end
+                  else begin
+                       illegal_instr = 1'b1;
+                    end
+            end
 
                     `FN_SRL_SRA: begin
-                        if ((funct7 == `F7_BASE) ||
-                            (funct7 == `F7_SUB_SRA) ||
-                            (funct7 == `F7_M_EXT)) begin
+                        if (
+                             // SRL
+                        (funct7 == `F7_BASE) ||
+                        // SRA
+                        (funct7 == `F7_SUB_SRA) ||
+                         // RV32M DIVU
+                        (funct7 == `F7_M_EXT) ||
+                            // B-extension: ROR
+                            (funct7 == `F7_ROT) 
+                        ) begin
                             reg_write  = 1'b1;
                             alu_ctrl   = funct3;
                             funct7_out = funct7;
@@ -318,6 +343,7 @@ module control_unit(
             end
 
         endcase
-    end
 
+       
+    end 
 endmodule

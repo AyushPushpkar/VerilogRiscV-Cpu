@@ -117,4 +117,16 @@
 `define WB_MEM       2'b01
 `define WB_PC4       2'b10
 
+
+
+// B-EXTENSION (BIT MANIPULATION)
+
+// Logical with Negation
+`define F7_ANDN      7'b0100000   // ANDN = A & ~B
+`define F7_ORN       7'b0100000   // ORN  = A | ~B
+`define F7_XNOR      7'b0100000   // XNOR = ~(A ^ B)
+
+// Rotate Instructions
+`define F7_ROT       7'b0110000   // ROL / ROR
+
 `endif
