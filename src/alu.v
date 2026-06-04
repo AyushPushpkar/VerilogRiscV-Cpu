@@ -191,10 +191,23 @@ module alu #(
                 //   F7_BASE -> SLL / SLLI
                 //============================================================
                 `FN_SLL: begin
-                    if (funct7 == `F7_BASE)
-                        result = A << B[SHIFT_WIDTH-1:0];
-                    else
-                        result = {DATA_WIDTH{1'b0}};
+                    case(funct7)
+                        `F7_BASE:begin
+                            result = A << B[SHIFT_WIDTH-1:0];
+                        end
+
+                        //B-extension :ROL
+                            `F7_ROT: begin
+                                if (B[SHIFT_WIDTH-1:0] == 0) 
+                                    result = A;
+                                    else
+                                      result = (A << B[SHIFT_WIDTH-1:0]) |
+                                        (A >> (DATA_WIDTH - B[SHIFT_WIDTH-1:0]));
+                                end
+                        default: begin
+                            result = {DATA_WIDTH{1'b0}};
+                        end
+                    endcase
                 end
 
                 //============================================================
@@ -223,10 +236,18 @@ module alu #(
                 // XOR
                 //============================================================
                 `FN_XOR: begin
-                    if (funct7 == `F7_BASE)
-                        result = A ^ B;
-                    else
-                        result = {DATA_WIDTH{1'b0}};
+                    case (funct7)
+                        `F7_BASE: begin
+                            result = A ^ B;
+                        end
+                        //B-extension :XNOR
+                        `F7_XNOR: begin
+                            result = ~(A ^ B);
+                        end
+                        default: begin
+                            result = {DATA_WIDTH{1'b0}};
+                        end
+                    endcase
                 end
 
                 //============================================================
@@ -244,7 +265,14 @@ module alu #(
                         `F7_SUB_SRA: begin
                             result = A_s >>> B[SHIFT_WIDTH-1:0];
                         end
-
+                    //B-extension : ROR
+                        `F7_ROT: begin
+                            if (B[SHIFT_WIDTH-1:0] == 0) 
+                                result = A;
+                            else
+                                result = (A >> B[SHIFT_WIDTH-1:0]) 
+                                    | (A << (DATA_WIDTH - B[SHIFT_WIDTH-1:0]));
+                        end
                         default: begin
                             result = {DATA_WIDTH{1'b0}};
                         end
@@ -255,20 +283,36 @@ module alu #(
                 // OR
                 //============================================================
                 `FN_OR: begin
-                    if (funct7 == `F7_BASE)
-                        result = A | B;
-                    else
+                  case(funct7)
+                  `F7_BASE: begin
+                    result = A | B; 
+                    end
+                    //B-extension : ORN
+                    `F7_ORN: begin
+                        result = A | ~B;
+                    end
+                    default: begin
                         result = {DATA_WIDTH{1'b0}};
+                    end
+                  endcase
                 end
 
                 //============================================================
                 // AND
                 //============================================================
                 `FN_AND: begin
-                    if (funct7 == `F7_BASE)
-                        result = A & B;
-                    else
-                        result = {DATA_WIDTH{1'b0}};
+                    case (funct7)
+                        `F7_BASE: begin
+                            result = A & B;
+                        end
+                        //B-extension : ANDN
+                        `F7_ANDN: begin
+                            result = A & ~B;
+                        end
+                        default: begin
+                            result = {DATA_WIDTH{1'b0}};
+                        end
+                    endcase
                 end
 
                 default: begin

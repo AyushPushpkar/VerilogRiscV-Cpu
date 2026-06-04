@@ -117,7 +117,7 @@
 `define WB_MEM       2'b01
 `define WB_PC4       2'b10
 
-`endif
+
 
 // B-EXTENSION (BIT MANIPULATION)
 
@@ -128,3 +128,5 @@
 
 // Rotate Instructions
 `define F7_ROT       7'b0110000   // ROL / ROR
+
+`endif

@@ -1,8 +1,8 @@
 `timescale 1ns/1ns
 
-//TODO iverilog -I src/ -o cpu_sim.vvp src/*.v tb/*.v
-//TODO vvp cpu_sim.vvp
-//TODO gtkwave cpu_sim.vcd
+// TODO: iverilog -I src/ -o cpu_sim.vvp src/*.v tb/*.v
+// TODO: vvp cpu_sim.vvp
+// TODO: gtkwave cpu_sim.vcd
 
 module tb_cpu();
 
@@ -19,15 +19,16 @@ module tb_cpu();
     reg clk;
     reg reset;
 
+    // MMIO output captured from the CPU
     wire [31:0] out_port;
 
     //====================================================================
     // DUT
     //====================================================================
     cpu_top uut (
-        .clk(clk),
-        .reset(reset),
-        .out_port(out_port)
+        .clk      (clk),
+        .reset    (reset),
+        .out_port (out_port)
     );
 
     //====================================================================
@@ -66,8 +67,8 @@ module tb_cpu();
         $display("==================================================");
         $display("CPU TESTBENCH STARTED");
         $display("Clock Period   = %0d ns", CLK_PERIOD_NS);
-        $display("Max Cycles     = %0d", MAX_CYCLES);
-        $display("Stuck PC Limit = %0d", STUCK_PC_LIMIT);
+        $display("Max Cycles     = %0d",    MAX_CYCLES);
+        $display("Stuck PC Limit = %0d",    STUCK_PC_LIMIT);
         $display("==================================================");
 
         // Hold reset for two cycles
@@ -162,15 +163,15 @@ module tb_cpu();
     end
 
     //====================================================================
-    // MMIO MONITOR (DEBUG ONLY)
+    // MMIO MONITOR
+    // Whenever the CPU writes to the MMIO address this prints to console.
     //====================================================================
     always @(posedge clk) begin
         if (!reset && !test_done) begin
             if (out_port != last_out_port) begin
-                if (out_port != 32'b0) begin
+                if (out_port != 32'b0)
                     $display("[%0t ns] MMIO WRITE DETECTED: out_port = 0x%08h (%0d)",
                              $time, out_port, out_port);
-                end
 
                 last_out_port <= out_port;
             end
@@ -183,7 +184,8 @@ module tb_cpu();
     task print_state;
         reg [31:0] mem_word_0;
         begin
-            mem_word_0 = {uut.d_mem.mem[3], uut.d_mem.mem[2], uut.d_mem.mem[1], uut.d_mem.mem[0]};
+            mem_word_0 = {uut.d_mem.mem[3], uut.d_mem.mem[2],
+                          uut.d_mem.mem[1], uut.d_mem.mem[0]};
 
             $display("Final PC      = 0x%08h", uut.pc_out);
             $display("Final OUTPORT = 0x%08h", out_port);
