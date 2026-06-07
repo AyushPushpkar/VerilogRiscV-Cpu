@@ -1,9 +1,8 @@
-//================================================================================
-// Register File - RV32I Integer Register File (32 x 32)
-//================================================================================
-// Implements the 32 general-purpose integer registers used by RV32I.
-//
+// Register File - RV64 Integer Register File (32 x 64)
+// Implements the 32 general-purpose integer registers used by RV64.
 // FEATURES:
+//   - Each register is XLEN bits wide
+//   - For standard RV64, XLEN = 64
 //   - 32 registers total: x0 to x31
 //   - 2 asynchronous read ports
 //   - 1 synchronous write port
@@ -20,7 +19,7 @@
 `timescale 1ns/1ns
 
 module register_file #(
-    parameter DATA_WIDTH = 32,
+    parameter XLEN       = 64,
     parameter ADDR_WIDTH = 5    // 5 bits -> 32 architectural registers
 )(
     input                       clk,
@@ -28,9 +27,9 @@ module register_file #(
     input      [ADDR_WIDTH-1:0] rs1,
     input      [ADDR_WIDTH-1:0] rs2,
     input      [ADDR_WIDTH-1:0] rd,
-    input      [DATA_WIDTH-1:0] write_data,
-    output     [DATA_WIDTH-1:0] read1,
-    output     [DATA_WIDTH-1:0] read2
+    input      [XLEN-1:0] write_data,
+    output     [XLEN-1:0] read1,
+    output     [XLEN-1:0] read2
 );
 
     //========================================================================
@@ -38,7 +37,7 @@ module register_file #(
     //========================================================================
     localparam NUM_REGS = (1 << ADDR_WIDTH);
 
-    reg [DATA_WIDTH-1:0] registers [0:NUM_REGS-1];
+    reg [XLEN-1:0] registers [0:NUM_REGS-1];
 
     //========================================================================
     // INITIALIZATION
@@ -47,15 +46,15 @@ module register_file #(
     integer i;
     initial begin
         for (i = 0; i < NUM_REGS; i = i + 1)
-            registers[i] = {DATA_WIDTH{1'b0}};
+            registers[i] = {XLEN{1'b0}};
     end
 
     //========================================================================
     // ASYNCHRONOUS READ PORTS
     //========================================================================
     // x0 is architecturally hardwired to zero.
-    assign read1 = (rs1 == {ADDR_WIDTH{1'b0}}) ? {DATA_WIDTH{1'b0}} : registers[rs1];
-    assign read2 = (rs2 == {ADDR_WIDTH{1'b0}}) ? {DATA_WIDTH{1'b0}} : registers[rs2];
+    assign read1 = (rs1 == {ADDR_WIDTH{1'b0}}) ? {XLEN{1'b0}} : registers[rs1];
+    assign read2 = (rs2 == {ADDR_WIDTH{1'b0}}) ? {XLEN{1'b0}} : registers[rs2];
 
     //========================================================================
     // SYNCHRONOUS WRITE PORT

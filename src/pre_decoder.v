@@ -27,10 +27,10 @@
 `include "defines.v"
 
 module pre_decoder #(
-    parameter INSTR_WIDTH = 32,
+    parameter ILEN = 32,
     parameter OP_WIDTH    = 7
 )(
-    input  [INSTR_WIDTH-1:0] instruction,
+    input  [ILEN-1:0] instruction,
 
     output reg is_mul_div,
     output reg is_memory,
