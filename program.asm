@@ -1,8 +1,7 @@
-
-ADDI x1, x0, 10      # x1 = 10
-ADDI x2, x0, 20      # x2 = 20
-
-ADD  x3, x1, x2      # x3 = 30
-
-STORE x3, 0(x0)      # MEM[0] = 30
-LOAD  x4, 0(x0)      # x4 = 30
+ADDI R1, R0, 12
+ADDI R2, R0, 10
+ADD  R3, R1, R2
+SUB  R4, R1, R2
+AND  R5, R1, R2
+OR   R6, R1, R2
+XOR  R7, R1, R2

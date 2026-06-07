@@ -20,7 +20,7 @@ module tb_cpu();
     reg reset;
 
     // MMIO output captured from the CPU
-    wire [31:0] out_port;
+    wire [63:0] out_port;
 
     //====================================================================
     // DUT
@@ -37,8 +37,8 @@ module tb_cpu();
     integer cycle_count;
     integer stuck_pc_count;
 
-    reg [31:0] last_pc;
-    reg [31:0] last_out_port;
+    reg [63:0] last_pc;
+    reg [63:0] last_out_port;
 
     reg test_done;
     reg test_pass;
@@ -59,8 +59,8 @@ module tb_cpu();
         reset          = 1'b1;
         cycle_count    = 0;
         stuck_pc_count = 0;
-        last_pc        = 32'hFFFFFFFF;
-        last_out_port  = 32'h00000000;
+        last_pc        = 64'hFFFFFFFFFFFFFFFF;
+        last_out_port  = 64'h0000000000000000;
         test_done      = 1'b0;
         test_pass      = 1'b0;
 
@@ -121,7 +121,7 @@ module tb_cpu();
             last_pc <= uut.pc_out;
 
             if (stuck_pc_count >= STUCK_PC_LIMIT) begin
-                $display("[%0t ns] INFO: PC stopped changing at 0x%08h", $time, uut.pc_out);
+                $display("[%0t ns] INFO: PC stopped changing at 0x%016h", $time, uut.pc_out);
 
                 // Treat this as a clean stop for general-purpose simulation.
                 // No automatic PASS claim is made.
@@ -169,8 +169,8 @@ module tb_cpu();
     always @(posedge clk) begin
         if (!reset && !test_done) begin
             if (out_port != last_out_port) begin
-                if (out_port != 32'b0)
-                    $display("[%0t ns] MMIO WRITE DETECTED: out_port = 0x%08h (%0d)",
+                if (out_port != 64'b0)
+                    $display("[%0t ns] MMIO WRITE DETECTED: out_port = 0x%016h (%0d)",
                              $time, out_port, out_port);
 
                 last_out_port <= out_port;
@@ -182,24 +182,26 @@ module tb_cpu();
     // FINAL DEBUG STATE PRINT
     //====================================================================
     task print_state;
-        reg [31:0] mem_word_0;
+        reg [63:0] mem_word_0;
         begin
-            mem_word_0 = {uut.d_mem.mem[3], uut.d_mem.mem[2],
+            mem_word_0 = {uut.d_mem.mem[7], uut.d_mem.mem[6],
+                          uut.d_mem.mem[5], uut.d_mem.mem[4],
+                          uut.d_mem.mem[3], uut.d_mem.mem[2],
                           uut.d_mem.mem[1], uut.d_mem.mem[0]};
 
-            $display("Final PC      = 0x%08h", uut.pc_out);
-            $display("Final OUTPORT = 0x%08h", out_port);
+            $display("Final PC      = 0x%016h", uut.pc_out);
+            $display("Final OUTPORT = 0x%016h", out_port);
 
             $display("Register Dump (sample debug view):");
-            $display("x1  = 0x%08h", uut.reg_file.registers[1]);
-            $display("x2  = 0x%08h", uut.reg_file.registers[2]);
-            $display("x3  = 0x%08h", uut.reg_file.registers[3]);
-            $display("x4  = 0x%08h", uut.reg_file.registers[4]);
-            $display("x5  = 0x%08h", uut.reg_file.registers[5]);
-            $display("x10 = 0x%08h", uut.reg_file.registers[10]);
-            $display("x11 = 0x%08h", uut.reg_file.registers[11]);
+            $display("x1  = 0x%016h", uut.reg_file.registers[1]);
+            $display("x2  = 0x%016h", uut.reg_file.registers[2]);
+            $display("x3  = 0x%016h", uut.reg_file.registers[3]);
+            $display("x4  = 0x%016h", uut.reg_file.registers[4]);
+            $display("x5  = 0x%016h", uut.reg_file.registers[5]);
+            $display("x10 = 0x%016h", uut.reg_file.registers[10]);
+            $display("x11 = 0x%016h", uut.reg_file.registers[11]);
 
-            $display("MEM[0] = 0x%08h", mem_word_0);
+            $display("MEM[0] = 0x%016h", mem_word_0);
 
             $display("Fault Summary:");
             $display("illegal_instr = %0b", uut.illegal_instr);

@@ -1,17 +1,19 @@
 //================================================================================
-// Control Unit - RV32I + RV32M Aware (Single-Cycle CPU)
+// Control Unit - RV64I + RV64M Aware (Single-Cycle CPU)
 //================================================================================
-// Decodes RV32I/RV32M instruction fields and generates datapath control signals.
+// Decodes RV64I/RV64M instruction fields and generates datapath control signals.
 //
 // SUPPORTED CLASSES:
 //   - R-type ALU ops
 //   - I-type ALU ops
-//   - Loads   : LB, LH, LW, LBU, LHU
-//   - Stores  : SB, SH, SW
-//   - Branch  : BEQ, BNE, BLT, BGE, BLTU, BGEU
-//   - Jumps   : JAL, JALR
-//   - U-type  : LUI, AUIPC
-//   - M-ext   : MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU
+//   - Loads        : LB, LH, LW, LD, LBU, LHU, LWU
+//   - Stores       : SB, SH, SW, SD
+//   - RV64 word    : ADDW, SUBW, SLLW, SRLW, SRAW
+//   - RV64 word-imm: ADDIW, SLLIW, SRLIW, SRAIW
+//   - Branch       : BEQ, BNE, BLT, BGE, BLTU, BGEU
+//   - Jumps        : JAL, JALR
+//   - U-type       : LUI, AUIPC
+//   - M-ext        : MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU
 //
 // DESIGN NOTES:
 //   - Keeps opcode-based control simple and readable
@@ -41,7 +43,8 @@ module control_unit (
     output reg [1:0]  wb_sel,
     output reg [2:0]  alu_ctrl,
     output reg [6:0]  funct7_out,
-    output reg        illegal_instr
+    output reg        illegal_instr,
+    output reg        is_word_op
 );
 
     always @(*) begin
@@ -60,6 +63,7 @@ module control_unit (
         alu_ctrl      = `FN_ADD_SUB;
         funct7_out    = `F7_BASE;
         illegal_instr = 1'b0;
+        is_word_op    = 1'b0;
 
         //====================================================================
         // OPCODE DECODE
@@ -68,8 +72,8 @@ module control_unit (
 
             //================================================================
             // R-TYPE REGISTER-REGISTER OPERATIONS
-            //   RV32I: ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND
-            //   RV32M: MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU
+            //   RV64I: ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND
+            //   RV64M: MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU
             //================================================================
             `OP_OP: begin
                 alu_a_sel = `ASEL_RS1;
@@ -96,12 +100,12 @@ module control_unit (
                     `FN_OR,
                     `FN_AND: begin
                         if (
-                            (funct7 == `F7_BASE)                              ||  // RV32I
-                            (funct7 == `F7_M_EXT)                             ||  // RV32M
-                            ((funct7 == `F7_ANDN) && (funct3 == `FN_AND))     ||  // B-ext: ANDN
-                            ((funct7 == `F7_ORN)  && (funct3 == `FN_OR))      ||  // B-ext: ORN
-                            ((funct7 == `F7_XNOR) && (funct3 == `FN_XOR))     ||  // B-ext: XNOR
-                            ((funct7 == `F7_ROT)  && (funct3 == `FN_SLL))         // B-ext: ROL
+                            (funct7 == `F7_BASE)                          ||  // RV64I
+                            (funct7 == `F7_M_EXT)                         ||  // RV64M
+                            ((funct7 == `F7_ANDN) && (funct3 == `FN_AND)) ||  // B-ext: ANDN
+                            ((funct7 == `F7_ORN)  && (funct3 == `FN_OR))  ||  // B-ext: ORN
+                            ((funct7 == `F7_XNOR) && (funct3 == `FN_XOR)) ||  // B-ext: XNOR
+                            ((funct7 == `F7_ROT)  && (funct3 == `FN_SLL))     // B-ext: ROL
                         ) begin
                             reg_write  = 1'b1;
                             alu_ctrl   = funct3;
@@ -119,6 +123,54 @@ module control_unit (
                             (funct7 == `F7_M_EXT)   ||  // DIVU
                             (funct7 == `F7_ROT)         // B-ext: ROR
                         ) begin
+                            reg_write  = 1'b1;
+                            alu_ctrl   = funct3;
+                            funct7_out = funct7;
+                        end
+                        else begin
+                            illegal_instr = 1'b1;
+                        end
+                    end
+
+                    default: illegal_instr = 1'b1;
+                endcase
+            end
+
+            //================================================================
+            // RV64 WORD REGISTER-REGISTER OPERATIONS
+            //   ADDW, SUBW, SLLW, SRLW, SRAW
+            //================================================================
+            `OP_OP_32: begin
+                alu_a_sel  = `ASEL_RS1;
+                alu_src    = 1'b0;
+                wb_sel     = `WB_ALU;
+                is_word_op = 1'b1;
+
+                case (funct3)
+                    `FN_ADD_SUB: begin
+                        if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA)) begin
+                            reg_write  = 1'b1;
+                            alu_ctrl   = funct3;
+                            funct7_out = funct7;
+                        end
+                        else begin
+                            illegal_instr = 1'b1;
+                        end
+                    end
+
+                    `FN_SLL: begin
+                        if (funct7 == `F7_BASE) begin
+                            reg_write  = 1'b1;
+                            alu_ctrl   = funct3;
+                            funct7_out = funct7;
+                        end
+                        else begin
+                            illegal_instr = 1'b1;
+                        end
+                    end
+
+                    `FN_SRL_SRA: begin
+                        if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA)) begin
                             reg_write  = 1'b1;
                             alu_ctrl   = funct3;
                             funct7_out = funct7;
@@ -156,7 +208,7 @@ module control_unit (
                     end
 
                     `FN_SLL: begin
-                        // SLLI requires funct7 = 0000000 in RV32I
+                        // SLLI: funct7[6:1] = 000000, bit[0] is shamt[5]
                         if (funct7 == `F7_BASE) begin
                             reg_write  = 1'b1;
                             alu_ctrl   = funct3;
@@ -184,7 +236,53 @@ module control_unit (
             end
 
             //================================================================
-            // LOADS: LB, LH, LW, LBU, LHU
+            // RV64 WORD REGISTER-IMMEDIATE OPERATIONS
+            //   ADDIW, SLLIW, SRLIW, SRAIW
+            //================================================================
+            `OP_OP_IMM_32: begin
+                alu_a_sel  = `ASEL_RS1;
+                alu_src    = 1'b1;
+                wb_sel     = `WB_ALU;
+                is_word_op = 1'b1;
+
+                case (funct3)
+                    // ADDIW
+                    `FN_ADD_SUB: begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = `F7_BASE;
+                    end
+
+                    // SLLIW
+                    `FN_SLL: begin
+                        if (funct7 == `F7_BASE) begin
+                            reg_write  = 1'b1;
+                            alu_ctrl   = funct3;
+                            funct7_out = funct7;
+                        end
+                        else begin
+                            illegal_instr = 1'b1;
+                        end
+                    end
+
+                    // SRLIW / SRAIW
+                    `FN_SRL_SRA: begin
+                        if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA)) begin
+                            reg_write  = 1'b1;
+                            alu_ctrl   = funct3;
+                            funct7_out = funct7;
+                        end
+                        else begin
+                            illegal_instr = 1'b1;
+                        end
+                    end
+
+                    default: illegal_instr = 1'b1;
+                endcase
+            end
+
+            //================================================================
+            // LOADS: LB, LH, LW, LD, LBU, LHU, LWU
             //================================================================
             `OP_LOAD: begin
                 alu_a_sel = `ASEL_RS1;
@@ -196,8 +294,11 @@ module control_unit (
                     `LD_LB,
                     `LD_LH,
                     `LD_LW,
+                    `LD_LD,   // RV64I: load doubleword
                     `LD_LBU,
-                    `LD_LHU: begin
+                    `LD_LHU,
+                    `LD_LWU:  // RV64I: load word unsigned (zero-extends to 64 bits)
+                    begin
                         reg_write = 1'b1;
                         mem_read  = 1'b1;
                     end
@@ -207,7 +308,7 @@ module control_unit (
             end
 
             //================================================================
-            // STORES: SB, SH, SW
+            // STORES: SB, SH, SW, SD
             //================================================================
             `OP_STORE: begin
                 alu_a_sel = `ASEL_RS1;
@@ -217,7 +318,9 @@ module control_unit (
                 case (funct3)
                     `ST_SB,
                     `ST_SH,
-                    `ST_SW: mem_write = 1'b1;
+                    `ST_SW,
+                    `ST_SD:   // RV64I: store doubleword
+                        mem_write = 1'b1;
 
                     default: illegal_instr = 1'b1;
                 endcase
@@ -255,7 +358,7 @@ module control_unit (
             end
 
             //================================================================
-            // JALR — Standard RV32I requires funct3 = 000
+            // JALR — requires funct3 = 000
             //================================================================
             `OP_JALR: begin
                 if (funct3 == `JALR_F3) begin

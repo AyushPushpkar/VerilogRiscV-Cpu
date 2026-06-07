@@ -6,19 +6,21 @@ from typing import List
 
 
 # ============================================================
-# OPCODES (MATCHES UPDATED defines.v)
+# OPCODES
 # ============================================================
 
 OPCODES = {
-    "OP":     0b0110011,
-    "OP_IMM": 0b0010011,
-    "LOAD":   0b0000011,
-    "STORE":  0b0100011,
-    "BRANCH": 0b1100011,
-    "JAL":    0b1101111,
-    "JALR":   0b1100111,
-    "LUI":    0b0110111,
-    "AUIPC":  0b0010111,
+    "OP":        0b0110011,
+    "OP_IMM":    0b0010011,
+    "OP_32":     0b0111011,
+    "OP_IMM_32": 0b0011011,
+    "LOAD":      0b0000011,
+    "STORE":     0b0100011,
+    "BRANCH":    0b1100011,
+    "JAL":       0b1101111,
+    "JALR":      0b1100111,
+    "LUI":       0b0110111,
+    "AUIPC":     0b0010111,
 }
 
 
@@ -50,17 +52,33 @@ FUNCT3 = {
     "ORI":    0b110,
     "ANDI":   0b111,
 
+    # RV64 word register-register
+    "ADDW":   0b000,
+    "SUBW":   0b000,
+    "SLLW":   0b001,
+    "SRLW":   0b101,
+    "SRAW":   0b101,
+
+    # RV64 word immediate
+    "ADDIW":  0b000,
+    "SLLIW":  0b001,
+    "SRLIW":  0b101,
+    "SRAIW":  0b101,
+
     # Loads
     "LB":     0b000,
     "LH":     0b001,
     "LW":     0b010,
+    "LD":     0b011,
     "LBU":    0b100,
     "LHU":    0b101,
+    "LWU":    0b110,
 
     # Stores
     "SB":     0b000,
     "SH":     0b001,
     "SW":     0b010,
+    "SD":     0b011,
 
     # Branches
     "BEQ":    0b000,
@@ -70,7 +88,7 @@ FUNCT3 = {
     "BLTU":   0b110,
     "BGEU":   0b111,
 
-    # RV32M
+    # RV64M
     "MUL":    0b000,
     "MULH":   0b001,
     "MULHSU": 0b010,
@@ -106,12 +124,19 @@ FUNCT7 = {
     "OR":     0x00,
     "AND":    0x00,
 
+    # RV64 word R-type
+    "ADDW":   0x00,
+    "SUBW":   0x20,
+    "SLLW":   0x00,
+    "SRLW":   0x00,
+    "SRAW":   0x20,
+
     # Shift-immediates
     "SLLI":   0x00,
     "SRLI":   0x00,
     "SRAI":   0x20,
 
-    # RV32M
+    # RV64M
     "MUL":    0x01,
     "MULH":   0x01,
     "MULHSU": 0x01,
@@ -131,21 +156,27 @@ FUNCT7 = {
 
 
 # ============================================================
-# INSTRUCTION SETS
+# INSTRUCTION GROUPS
 # ============================================================
 
-R_TYPE_OPS = {
+R_TYPE = {
     "ADD", "SUB", "SLL", "SLT", "SLTU", "XOR", "SRL", "SRA", "OR", "AND",
     "MUL", "MULH", "MULHSU", "MULHU", "DIV", "DIVU", "REM", "REMU",
     "ANDN", "ORN", "XNOR", "ROR", "ROL",
 }
 
-I_TYPE_OPS    = {"ADDI", "SLTI", "SLTIU", "XORI", "ORI", "ANDI"}
-SHIFT_IMM_OPS = {"SLLI", "SRLI", "SRAI"}
-LOAD_OPS      = {"LB", "LH", "LW", "LBU", "LHU", "LOAD"}
-STORE_OPS     = {"SB", "SH", "SW", "STORE"}
-BRANCH_OPS    = {"BEQ", "BNE", "BLT", "BGE", "BLTU", "BGEU"}
-U_TYPE_OPS    = {"LUI", "AUIPC"}
+R_TYPE_32 = {"ADDW", "SUBW", "SLLW", "SRLW", "SRAW"}
+
+I_TYPE       = {"ADDI", "ANDI", "ORI", "XORI", "SLTI", "SLTIU"}
+SHIFT_I_TYPE = {"SLLI", "SRLI", "SRAI"}
+
+I_TYPE_32       = {"ADDIW"}
+SHIFT_I_TYPE_32 = {"SLLIW", "SRLIW", "SRAIW"}
+
+LOAD_TYPE   = {"LB", "LH", "LW", "LD", "LBU", "LHU", "LWU"}
+STORE_TYPE  = {"SB", "SH", "SW", "SD"}
+BRANCH_TYPE = {"BEQ", "BNE", "BLT", "BGE", "BLTU", "BGEU"}
+U_TYPE      = {"LUI", "AUIPC"}
 
 
 # ============================================================
@@ -168,14 +199,18 @@ def signed_range_check(value: int, bits: int, context: str) -> None:
     lo = -(1 << (bits - 1))
     hi =  (1 << (bits - 1)) - 1
     if not (lo <= value <= hi):
-        raise ValueError(f"{context} immediate {value} out of signed {bits}-bit range [{lo}, {hi}]")
+        raise ValueError(
+            f"{context} immediate {value} out of signed {bits}-bit range [{lo}, {hi}]"
+        )
 
 
 def unsigned_range_check(value: int, bits: int, context: str) -> None:
     lo = 0
     hi = (1 << bits) - 1
     if not (lo <= value <= hi):
-        raise ValueError(f"{context} immediate {value} out of unsigned {bits}-bit range [{lo}, {hi}]")
+        raise ValueError(
+            f"{context} immediate {value} out of unsigned {bits}-bit range [{lo}, {hi}]"
+        )
 
 
 def parse_mem_operand(text: str) -> tuple[int, int]:
@@ -203,25 +238,36 @@ def strip_comment(line: str) -> str:
 # ENCODERS
 # ============================================================
 
-def R(rd: int, rs1: int, rs2: int, f3: int, f7: int) -> int:
-    return (f7 << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | OPCODES["OP"]
+def R(rd: int, rs1: int, rs2: int, f3: int, f7: int, opcode: int) -> int:
+    return (f7 << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | opcode
 
 
 def I(rd: int, rs1: int, im: int, f3: int, opcode: int) -> int:
+    signed_range_check(im, 12, "I-type")
     im &= 0xFFF
     return (im << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | opcode
 
 
-def I_SHIFT(rd: int, rs1: int, shamt: int, f3: int, f7: int) -> int:
-    return (f7 << 25) | ((shamt & 0x1F) << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | OPCODES["OP_IMM"]
+def SHIFT_I(rd: int, rs1: int, shamt: int, f3: int, f7: int,
+            opcode: int, shamt_bits: int) -> int:
+    unsigned_range_check(shamt, shamt_bits, "shift")
+    imm12 = (f7 << 5) | shamt
+    return (imm12 << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | opcode
 
 
 def S(rs1: int, rs2: int, im: int, f3: int) -> int:
+    signed_range_check(im, 12, "S-type")
     im &= 0xFFF
-    return ((im >> 5) << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | ((im & 0x1F) << 7) | OPCODES["STORE"]
+    return (
+        ((im >> 5) << 25) | (rs2 << 20) | (rs1 << 15) |
+        (f3 << 12) | ((im & 0x1F) << 7) | OPCODES["STORE"]
+    )
 
 
 def B(rs1: int, rs2: int, im: int, f3: int) -> int:
+    signed_range_check(im, 13, "B-type")
+    if im % 2 != 0:
+        raise ValueError("Branch offset must be 2-byte aligned")
     im &= 0x1FFF
     return (
         ((im >> 12) & 0x1)  << 31 |
@@ -240,12 +286,15 @@ def U(rd: int, im: int, opcode: int) -> int:
 
 
 def J(rd: int, im: int) -> int:
+    signed_range_check(im, 21, "J-type")
+    if im % 2 != 0:
+        raise ValueError("JAL offset must be 2-byte aligned")
     im &= 0x1FFFFF
     return (
-        ((im >> 20) & 0x1)  << 31 |
-        ((im >> 1)  & 0x3FF)<< 21 |
-        ((im >> 11) & 0x1)  << 20 |
-        ((im >> 12) & 0xFF) << 12 |
+        ((im >> 20) & 0x1)   << 31 |
+        ((im >> 1)  & 0x3FF) << 21 |
+        ((im >> 11) & 0x1)   << 20 |
+        ((im >> 12) & 0xFF)  << 12 |
         (rd << 7) |
         OPCODES["JAL"]
     )
@@ -298,48 +347,80 @@ class Assembler:
             inst = 0
 
             # ------------------------------------------------
-            # R-type
+            # R-type (64-bit)
             # ------------------------------------------------
-            if op in R_TYPE_OPS:
+            if op in R_TYPE:
                 if len(parts) != 4:
                     raise ValueError(f"{op} expects 3 operands")
                 rd, rs1, rs2 = reg(parts[1]), reg(parts[2]), reg(parts[3])
-                inst = R(rd, rs1, rs2, FUNCT3[op], FUNCT7[op])
+                inst = R(rd, rs1, rs2, FUNCT3[op], FUNCT7[op], OPCODES["OP"])
 
             # ------------------------------------------------
-            # I-type arithmetic/logical
+            # R-type word (32-bit, RV64 W-suffix)
             # ------------------------------------------------
-            elif op in I_TYPE_OPS:
+            elif op in R_TYPE_32:
+                if len(parts) != 4:
+                    raise ValueError(f"{op} expects 3 operands")
+                rd, rs1, rs2 = reg(parts[1]), reg(parts[2]), reg(parts[3])
+                inst = R(rd, rs1, rs2, FUNCT3[op], FUNCT7[op], OPCODES["OP_32"])
+
+            # ------------------------------------------------
+            # I-type arithmetic/logical (64-bit)
+            # ------------------------------------------------
+            elif op in I_TYPE:
                 if len(parts) != 4:
                     raise ValueError(f"{op} expects 3 operands")
                 rd, rs1, imv = reg(parts[1]), reg(parts[2]), imm(parts[3])
-                signed_range_check(imv, 12, op)
                 inst = I(rd, rs1, imv, FUNCT3[op], OPCODES["OP_IMM"])
 
             # ------------------------------------------------
-            # Shift-immediate
+            # Shift-immediate (64-bit) — 6-bit shamt
             # ------------------------------------------------
-            elif op in SHIFT_IMM_OPS:
+            elif op in SHIFT_I_TYPE:
                 if len(parts) != 4:
                     raise ValueError(f"{op} expects 3 operands")
                 rd, rs1, shamt = reg(parts[1]), reg(parts[2]), imm(parts[3])
-                unsigned_range_check(shamt, 5, op)
-                inst = I_SHIFT(rd, rs1, shamt, FUNCT3[op], FUNCT7[op])
+                f7 = 0x20 if op == "SRAI" else 0x00
+                inst = SHIFT_I(rd, rs1, shamt, FUNCT3[op], f7, OPCODES["OP_IMM"], 6)
+
+            # ------------------------------------------------
+            # I-type arithmetic word (32-bit)
+            # ------------------------------------------------
+            elif op in I_TYPE_32:
+                if len(parts) != 4:
+                    raise ValueError(f"{op} expects 3 operands")
+                rd, rs1, imv = reg(parts[1]), reg(parts[2]), imm(parts[3])
+                inst = I(rd, rs1, imv, FUNCT3[op], OPCODES["OP_IMM_32"])
+
+            # ------------------------------------------------
+            # Shift-immediate word (32-bit) — 5-bit shamt
+            # ------------------------------------------------
+            elif op in SHIFT_I_TYPE_32:
+                if len(parts) != 4:
+                    raise ValueError(f"{op} expects 3 operands")
+                rd, rs1, shamt = reg(parts[1]), reg(parts[2]), imm(parts[3])
+                f7 = 0x20 if op == "SRAIW" else 0x00
+                inst = SHIFT_I(rd, rs1, shamt, FUNCT3[op], f7, OPCODES["OP_IMM_32"], 5)
 
             # ------------------------------------------------
             # Loads
-            # Supports both:
-            #   LW x4, 0(x0)
-            #   LOAD x4, 0(x0)   (legacy alias -> LW)
             # ------------------------------------------------
-            elif op in LOAD_OPS:
+            elif op in LOAD_TYPE:
                 if len(parts) != 3:
                     raise ValueError(f"{op} expects 2 operands")
-                rd            = reg(parts[1])
-                offset, rs1r  = parse_mem_operand(parts[2])
-                actual_op     = "LW" if op == "LOAD" else op
-                signed_range_check(offset, 12, actual_op)
-                inst = I(rd, rs1r, offset, FUNCT3[actual_op], OPCODES["LOAD"])
+                rd           = reg(parts[1])
+                offset, rs1r = parse_mem_operand(parts[2])
+                inst = I(rd, rs1r, offset, FUNCT3[op], OPCODES["LOAD"])
+
+            # ------------------------------------------------
+            # Stores
+            # ------------------------------------------------
+            elif op in STORE_TYPE:
+                if len(parts) != 3:
+                    raise ValueError(f"{op} expects 2 operands")
+                rs2          = reg(parts[1])
+                offset, rs1r = parse_mem_operand(parts[2])
+                inst = S(rs1r, rs2, offset, FUNCT3[op])
 
             # ------------------------------------------------
             # JALR
@@ -355,35 +436,16 @@ class Assembler:
                     imv, rs1r     = parse_mem_operand(parts[2])
                 else:
                     raise ValueError("JALR expects either 3 or 2 operands after mnemonic")
-                signed_range_check(imv, 12, op)
                 inst = I(rd, rs1r, imv, 0b000, OPCODES["JALR"])
-
-            # ------------------------------------------------
-            # Stores
-            # Supports both:
-            #   SW x3, 0(x0)
-            #   STORE x3, 0(x0)  (legacy alias -> SW)
-            # ------------------------------------------------
-            elif op in STORE_OPS:
-                if len(parts) != 3:
-                    raise ValueError(f"{op} expects 2 operands")
-                rs2           = reg(parts[1])
-                offset, rs1r  = parse_mem_operand(parts[2])
-                actual_op     = "SW" if op == "STORE" else op
-                signed_range_check(offset, 12, actual_op)
-                inst = S(rs1r, rs2, offset, FUNCT3[actual_op])
 
             # ------------------------------------------------
             # Branches
             # ------------------------------------------------
-            elif op in BRANCH_OPS:
+            elif op in BRANCH_TYPE:
                 if len(parts) != 4:
                     raise ValueError(f"{op} expects 3 operands")
                 rs1r, rs2r = reg(parts[1]), reg(parts[2])
                 offset     = target(parts[3]) - pc
-                if offset & 0x1:
-                    raise ValueError(f"{op} branch target offset must be even, got {offset}")
-                signed_range_check(offset, 13, op)
                 inst = B(rs1r, rs2r, offset, FUNCT3[op])
 
             # ------------------------------------------------
@@ -394,15 +456,12 @@ class Assembler:
                     raise ValueError("JAL expects 2 operands")
                 rd     = reg(parts[1])
                 offset = target(parts[2]) - pc
-                if offset & 0x1:
-                    raise ValueError(f"JAL target offset must be even, got {offset}")
-                signed_range_check(offset, 21, op)
                 inst = J(rd, offset)
 
             # ------------------------------------------------
             # U-type
             # ------------------------------------------------
-            elif op in U_TYPE_OPS:
+            elif op in U_TYPE:
                 if len(parts) != 3:
                     raise ValueError(f"{op} expects 2 operands")
                 rd, imv = reg(parts[1]), imm(parts[2])

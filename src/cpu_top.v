@@ -1,13 +1,13 @@
 //================================================================================
-// CPU Top Level - RV32I + RV32M (Single-Cycle, Tightened and Extended)
+// CPU Top Level - RV64I + RV64M (Single-Cycle, Tightened and Extended)
 //================================================================================
-// Single-cycle 32-bit RISC-V style CPU with:
-//   - 32-bit architectural PC
-//   - RV32I-style integer datapath
-//   - RV32M ALU support
-//   - Full RV32I load/store width support:
-//       LB, LH, LW, LBU, LHU
-//       SB, SH, SW
+// Single-cycle 64-bit RISC-V style CPU with:
+//   - 64-bit architectural PC / address path
+//   - RV64I-style 64-bit integer datapath
+//   - RV64M ALU support
+//   - Full RV64I load/store width support:
+//       LB, LH, LW, LD, LBU, LHU, LWU
+//       SB, SH, SW, SD
 //   - JAL and JALR support
 //   - Full branch family:
 //       BEQ, BNE, BLT, BGE, BLTU, BGEU
@@ -16,7 +16,6 @@
 //   - Illegal instruction / misalignment / address fault visibility
 //
 // DESIGN NOTES:
-//   - Architectural PC is 32-bit
 //   - Local memories may still be much smaller and use low address bits only
 //   - This design detects illegal / misaligned / out-of-range conditions and
 //     suppresses architectural side effects safely, but does not implement a
@@ -27,29 +26,30 @@
 `include "defines.v"
 
 module cpu_top #(
-    parameter DATA_WIDTH      = 32,
-    parameter PC_WIDTH        = 32,
-    parameter INST_ADDR_WIDTH = 10,
-    parameter DATA_ADDR_WIDTH = 8,
+    parameter XLEN     = 64,  // register, ALU, memory data, writeback
+    parameter ILEN     = 32,  // instruction bits
+    parameter ADDR_W   = XLEN,  // architectural address width (for PC and effective addresses)
+    parameter INST_ADDR_WIDTH = 10,//Rom// instruction memory address width (number of address bits)2^10 = 1024 instruction memory locations/index range
+    parameter DATA_ADDR_WIDTH = 8,//ram// data memory address width (number of address bits)2^8 = 256 data memory locations/index range
     parameter MMIO_ADDRESS    = {DATA_ADDR_WIDTH{1'b1}}
 )(
     input  clk,
     input  reset,
-    output reg [DATA_WIDTH-1:0] out_port
+    output reg [XLEN-1:0] out_port
 );
 
     //========================================================================
     // 1. FETCH STAGE SIGNALS
     //========================================================================
-    wire [PC_WIDTH-1:0] pc_out;
-    wire [PC_WIDTH-1:0] pc_plus_4;
-    wire [PC_WIDTH-1:0] next_pc_val;
+    wire [ADDR_W-1:0] pc_out;
+    wire [ADDR_W-1:0] pc_plus_4;
+    wire [ADDR_W-1:0] next_pc_val;
 
-    wire [31:0] instruction;
+    wire [ILEN-1:0] instruction;
     wire        instr_misaligned;
     wire        instr_addr_oob;
 
-    assign pc_plus_4 = pc_out + 32'd4;
+    assign pc_plus_4 = pc_out + {{(ADDR_W-3){1'b0}}, 3'd4};      //assign pc_plus_4 = pc_out + 64'd4;
 
     //========================================================================
     // 2. DECODE FIELDS
@@ -61,7 +61,7 @@ module cpu_top #(
     wire [4:0] rs2    = instruction[24:20];
     wire [6:0] funct7 = instruction[31:25];
 
-    wire [31:0] imm32;
+    wire [XLEN-1:0] imm_ext;
 
     //========================================================================
     // 3. CONTROL SIGNALS
@@ -78,16 +78,16 @@ module cpu_top #(
     wire [2:0]  alu_ctrl;
     wire [6:0]  funct7_out;
     wire        illegal_instr;
-
+    wire        is_word_op; // New signal to indicate 32-bit word operations
     //========================================================================
     // 4. REGISTER FILE + ALU SIGNALS
     //========================================================================
-    wire [DATA_WIDTH-1:0] reg_read1;
-    wire [DATA_WIDTH-1:0] reg_read2;
+    wire [XLEN-1:0] reg_read1;
+    wire [XLEN-1:0] reg_read2;
 
-    wire [DATA_WIDTH-1:0] alu_in_a;
-    wire [DATA_WIDTH-1:0] alu_in_b;
-    wire [DATA_WIDTH-1:0] alu_result;
+    wire [XLEN-1:0] alu_in_a;
+    wire [XLEN-1:0] alu_in_b;
+    wire [XLEN-1:0] alu_result;
 
     wire alu_zero;
     wire alu_lt;
@@ -96,12 +96,12 @@ module cpu_top #(
     //========================================================================
     // 5. MEMORY / WRITEBACK SIGNALS
     //========================================================================
-    wire [DATA_WIDTH-1:0] mem_read_data;
+    wire [XLEN-1:0] mem_read_data;
     wire                  data_misaligned;
     wire                  data_illegal_funct3;
     wire                  data_addr_oob;
 
-    wire [DATA_WIDTH-1:0] final_write_data;
+    wire [XLEN-1:0] final_write_data;
 
     //========================================================================
     // 6. INTERNAL FAULT / SUPPRESSION SIGNALS
@@ -122,9 +122,9 @@ module cpu_top #(
     //========================================================================
     wire take_branch;
 
-    wire [PC_WIDTH-1:0] branch_target;
-    wire [PC_WIDTH-1:0] jal_target;
-    wire [PC_WIDTH-1:0] jalr_target;
+    wire [ADDR_W-1:0] branch_target;
+    wire [ADDR_W-1:0] jal_target;
+    wire [ADDR_W-1:0] jalr_target;
 
     //========================================================================
     // 8. MMIO SIGNALS
@@ -164,10 +164,10 @@ module cpu_top #(
     assign alu_in_a =
         (alu_a_sel == `ASEL_RS1)  ? reg_read1 :
         (alu_a_sel == `ASEL_PC)   ? pc_out    :
-        (alu_a_sel == `ASEL_ZERO) ? {DATA_WIDTH{1'b0}} :
+        (alu_a_sel == `ASEL_ZERO) ? {XLEN{1'b0}} :
                                     reg_read1;
 
-    assign alu_in_b = (alu_src) ? imm32 : reg_read2;
+    assign alu_in_b = (alu_src) ? imm_ext : reg_read2;
 
     //========================================================================
     // 11. BRANCH DECISION LOGIC
@@ -183,13 +183,13 @@ module cpu_top #(
         );
 
     //========================================================================
-    // 12. 32-BIT TARGET ADDRESS FORMATION
+    // 12. TARGET ADDRESS FORMATION
     //========================================================================
-    // All control-flow targets are computed in architectural 32-bit space.
-    // Truncation, if any, happens only when smaller local memories use low bits.
-    assign branch_target = pc_out + imm32;
-    assign jal_target    = pc_out + imm32;
-    assign jalr_target   = (reg_read1 + imm32) & ~32'd1;
+    assign branch_target = pc_out + imm_ext[ADDR_W-1:0];
+    assign jal_target    = pc_out + imm_ext[ADDR_W-1:0];
+    assign jalr_target =
+    (reg_read1[ADDR_W-1:0] + imm_ext[ADDR_W-1:0]) &
+    ~{{(ADDR_W-1){1'b0}}, 1'b1}; // Ensure LSB is zero for alignment
 
     assign next_pc_val =
         (jalr_safe)   ? jalr_target   :
@@ -215,7 +215,7 @@ module cpu_top #(
 
     always @(posedge clk or posedge reset) begin
         if (reset)
-            out_port <= {DATA_WIDTH{1'b0}};
+            out_port <= {XLEN{1'b0}};
         else if (is_mmio_write)
             out_port <= reg_read2;
     end
@@ -228,7 +228,7 @@ module cpu_top #(
     // Program Counter
     //------------------------------------------------------------------------
     program_counter #(
-        .PC_WIDTH(PC_WIDTH)
+        .PC_WIDTH(ADDR_W)
     ) pc_inst (
         .clk    (clk),
         .reset  (reset),
@@ -240,9 +240,9 @@ module cpu_top #(
     // Instruction Memory
     //------------------------------------------------------------------------
     instruction_memory #(
-        .ADDR_WIDTH(INST_ADDR_WIDTH),
-        .INST_WIDTH(32),
-        .PC_WIDTH  (PC_WIDTH)
+        .ROM_ADDR_WIDTH(INST_ADDR_WIDTH),
+        .ILEN           (ILEN),
+        .ADDR_W         (ADDR_W)
     ) inst_mem (
         .address         (pc_out),
         .instruction     (instruction),
@@ -253,9 +253,12 @@ module cpu_top #(
     //------------------------------------------------------------------------
     // Immediate Generator
     //------------------------------------------------------------------------
-    imm_gen immediate_decoder (
-        .instruction(instruction),
-        .imm_out    (imm32)
+    imm_gen #(
+    .XLEN(XLEN),
+    .ILEN(ILEN)
+     ) immediate_decoder (
+    .instruction(instruction),
+    .imm_out    (imm_ext)
     );
 
     //------------------------------------------------------------------------
@@ -277,14 +280,15 @@ module cpu_top #(
         .wb_sel       (wb_sel),
         .alu_ctrl     (alu_ctrl),
         .funct7_out   (funct7_out),
-        .illegal_instr(illegal_instr)
+        .illegal_instr(illegal_instr),
+        .is_word_op   (is_word_op)
     );
 
     //------------------------------------------------------------------------
     // Register File
     //------------------------------------------------------------------------
     register_file #(
-        .DATA_WIDTH(DATA_WIDTH),
+        .XLEN       (XLEN),
         .ADDR_WIDTH(5)
     ) reg_file (
         .clk       (clk),
@@ -301,13 +305,14 @@ module cpu_top #(
     // ALU
     //------------------------------------------------------------------------
     alu #(
-        .DATA_WIDTH(DATA_WIDTH),
+        .XLEN      (XLEN),
         .OP_WIDTH  (3)
     ) main_alu (
         .A      (alu_in_a),
         .B      (alu_in_b),
         .funct3 (alu_ctrl),
         .funct7 (funct7_out),
+        .is_word_op(is_word_op),
         .result (alu_result),
         .zero   (alu_zero),
         .lt     (alu_lt),
@@ -320,7 +325,7 @@ module cpu_top #(
     // Normal RAM writes are suppressed for MMIO destinations.
     data_memory #(
         .ADDR_WIDTH(DATA_ADDR_WIDTH),
-        .DATA_WIDTH(DATA_WIDTH)
+        .XLEN(XLEN)
     ) d_mem (
         .clk               (clk),
         .mem_read          (mem_read_safe && !is_mmio_addr),

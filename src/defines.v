@@ -1,14 +1,14 @@
 //================================================================================
-// RISC-V Defines - RV32I + RV32M + Internal CPU Control Encodings
+// RISC-V Defines - RV64I + RV32M + Internal CPU Control Encodings
 //================================================================================
 // Centralized constants for:
-//   - RV32I major opcodes
-//   - RV32I funct3 / funct7 fields
+//   - RV64I major opcodes
+//   - RV64I funct3 / funct7 fields
 //   - RV32M funct3 / funct7 fields
 //   - Internal datapath select encodings used by the CPU
 //
 // NOTES:
-//   - ISA encodings follow standard RV32I / RV32M
+//   - ISA encodings follow standard RV64I / RV32M
 //   - Internal control encodings are local to this project
 //   - Keeping these in one file makes decode and datapath logic cleaner
 //================================================================================
@@ -17,14 +17,23 @@
 `define DEFINES_V
 
 //================================================================================
-// RV32I MAJOR OPCODES
+// RV64I MAJOR OPCODES
 //================================================================================
 `define OP_LOAD      7'b0000011
 `define OP_STORE     7'b0100011
 `define OP_OP_IMM    7'b0010011
 `define OP_AUIPC     7'b0010111
+// RV64 word-immediate instructions:
+// ADDIW, SLLIW, SRLIW, SRAIW
+`define OP_OP_IMM_32   7'b0011011
+
 `define OP_OP        7'b0110011
 `define OP_LUI       7'b0110111
+
+// RV64 word register-register instructions:
+// ADDW, SUBW, SLLW, SRLW, SRAW
+`define OP_OP_32       7'b0111011
+
 `define OP_BRANCH    7'b1100011
 `define OP_JALR      7'b1100111
 `define OP_JAL       7'b1101111
@@ -61,19 +70,28 @@
 //================================================================================
 // LOAD FUNCT3 VALUES
 //================================================================================
+// RV64 load behavior:
+//   LB   : Load Byte, sign-extend to XLEN
+//   LH   : Load Halfword, sign-extend to XLEN
+//   LW   : Load Word, sign-extend to XLEN
+//   LD   : Load Doubleword, full 64-bit load
+//   LBU  : Load Byte Unsigned, zero-extend to XLEN
+//   LHU  : Load Halfword Unsigned, zero-extend to XLEN
+//   LWU  : Load Word Unsigned, zero-extend to XLEN
 `define LD_LB        3'b000
 `define LD_LH        3'b001
 `define LD_LW        3'b010
+`define LD_LD        3'b011
 `define LD_LBU       3'b100
 `define LD_LHU       3'b101
-
+`define LD_LWU       3'b110
 //================================================================================
 // STORE FUNCT3 VALUES
 //================================================================================
 `define ST_SB        3'b000
 `define ST_SH        3'b001
 `define ST_SW        3'b010
-
+`define ST_SD        3'b011
 //================================================================================
 // JALR FUNCT3 VALUE
 //================================================================================
