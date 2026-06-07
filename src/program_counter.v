@@ -19,7 +19,7 @@
 `timescale 1ns/1ns
 
 module program_counter #(
-    parameter PC_WIDTH = 32
+    parameter PC_WIDTH = 64
 )(
     input                    clk,
     input                    reset,

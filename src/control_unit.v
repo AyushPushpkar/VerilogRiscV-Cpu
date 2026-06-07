@@ -1,13 +1,15 @@
 //================================================================================
-// Control Unit - RV32I + RV32M Aware (Single-Cycle CPU)
+// Control Unit - RV64I + RV64M Aware (Single-Cycle CPU)
 //================================================================================
-// Decodes RV32I/RV32M instruction fields and generates datapath control signals.
+// Decodes RV64I/RV64M instruction fields and generates datapath control signals.
 //
 // SUPPORTED CLASSES:
 //   - R-type ALU ops
 //   - I-type ALU ops
-//   - Loads   : LB, LH, LW, LBU, LHU
-//   - Stores  : SB, SH, SW
+//   - Loads   : LB, LH, LW, LD, LBU, LHU, LWU
+//   - Stores  : SB, SH, SW, SD
+//   - RV64 word ops: ADDW, SUBW, SLLW, SRLW, SRAW
+//   - RV64 word-immediate ops: ADDIW, SLLIW, SRLIW, SRAIW
 //   - Branch  : BEQ, BNE, BLT, BGE, BLTU, BGEU
 //   - Jumps   : JAL, JALR
 //   - U-type  : LUI, AUIPC
@@ -41,7 +43,8 @@ module control_unit(
     output reg [1:0]  wb_sel,
     output reg [2:0]  alu_ctrl,
     output reg [6:0]  funct7_out,
-    output reg        illegal_instr
+    output reg        illegal_instr,
+    output reg        is_word_op
 );
 
     always @(*) begin
@@ -60,7 +63,7 @@ module control_unit(
         alu_ctrl      = `FN_ADD_SUB;
         funct7_out    = `F7_BASE;
         illegal_instr = 1'b0;
-
+        is_word_op    = 1'b0;
         //========================================================================
         // OPCODE DECODE
         //========================================================================
@@ -152,7 +155,59 @@ module control_unit(
                     end
                 endcase
             end
+       //====================================================================
+// RV64 WORD REGISTER-REGISTER OPERATIONS
+//   ADDW, SUBW, SLLW, SRLW, SRAW
+//====================================================================
+`OP_OP_32: begin
+    alu_a_sel  = `ASEL_RS1;
+    alu_src    = 1'b0;
+    wb_sel     = `WB_ALU;
+    is_word_op = 1'b1;
 
+    case (funct3)
+
+        `FN_ADD_SUB: begin
+            if ((funct7 == `F7_BASE) ||
+                (funct7 == `F7_SUB_SRA)) begin
+                reg_write  = 1'b1;
+                alu_ctrl   = funct3;
+                funct7_out = funct7;
+            end
+            else begin
+                illegal_instr = 1'b1;
+            end
+        end
+
+        `FN_SLL: begin
+            if (funct7 == `F7_BASE) begin
+                reg_write  = 1'b1;
+                alu_ctrl   = funct3;
+                funct7_out = funct7;
+            end
+            else begin
+                illegal_instr = 1'b1;
+            end
+        end
+
+        `FN_SRL_SRA: begin
+            if ((funct7 == `F7_BASE) ||
+                (funct7 == `F7_SUB_SRA)) begin
+                reg_write  = 1'b1;
+                alu_ctrl   = funct3;
+                funct7_out = funct7;
+            end
+            else begin
+                illegal_instr = 1'b1;
+            end
+        end
+
+        default: begin
+            illegal_instr = 1'b1;
+        end
+
+    endcase
+end
             //====================================================================
             // I-TYPE REGISTER-IMMEDIATE OPERATIONS
             //   ADDI, SLLI, SLTI, SLTIU, XORI, SRLI, SRAI, ORI, ANDI
@@ -206,7 +261,53 @@ module control_unit(
                     end
                 endcase
             end
+//====================================================================
+// RV64 WORD REGISTER-IMMEDIATE OPERATIONS
+//   ADDIW, SLLIW, SRLIW, SRAIW
+//====================================================================
+`OP_OP_IMM_32: begin
+    alu_a_sel = `ASEL_RS1;
+    alu_src   = 1'b1;
+    wb_sel    = `WB_ALU;
+    is_word_op = 1'b1;
+    case (funct3)
 
+        // ADDIW
+        `FN_ADD_SUB: begin
+            reg_write  = 1'b1;
+            alu_ctrl   = funct3;
+            funct7_out = `F7_BASE;
+        end
+
+        // SLLIW
+        `FN_SLL: begin
+            if (funct7 == `F7_BASE) begin
+                reg_write  = 1'b1;
+                alu_ctrl   = funct3;
+                funct7_out = funct7;
+            end
+            else begin
+                illegal_instr = 1'b1;
+            end
+        end
+
+        // SRLIW / SRAIW
+        `FN_SRL_SRA: begin
+            if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA)) begin
+                reg_write  = 1'b1;
+                alu_ctrl   = funct3;
+                funct7_out = funct7;
+            end
+            else begin
+                illegal_instr = 1'b1;
+            end
+        end
+
+        default: begin
+            illegal_instr = 1'b1;
+        end
+    endcase
+end
             //====================================================================
             // LOADS
             //   LB, LH, LW, LBU, LHU
@@ -221,8 +322,10 @@ module control_unit(
                     `LD_LB,
                     `LD_LH,
                     `LD_LW,
+                    `LD_LD,// RV64I load doubleword
                     `LD_LBU,
-                    `LD_LHU: begin
+                    `LD_LHU,
+                    `LD_LWU: begin// Note: LD_LWU is an RV64I instruction that loads a 32-bit word and zero-extends to 64 bits
                         reg_write = 1'b1;
                         mem_read  = 1'b1;
                     end
@@ -245,7 +348,8 @@ module control_unit(
                 case (funct3)
                     `ST_SB,
                     `ST_SH,
-                    `ST_SW: begin
+                    `ST_SW,
+                    `ST_SD: begin// RV64I store doubleword
                         mem_write = 1'b1;
                     end
 

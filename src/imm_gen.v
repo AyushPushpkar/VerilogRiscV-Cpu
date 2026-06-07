@@ -22,9 +22,12 @@
 `timescale 1ns/1ns
 `include "defines.v"
 
-module imm_gen (
-    input  [31:0] instruction,
-    output reg [31:0] imm_out
+module imm_gen #(
+    parameter XLEN =64,
+    parameter ILEN =32
+) (
+    input  [ILEN-1:0] instruction,
+    output reg [XLEN-1:0] imm_out
 );
 
     //========================================================================
@@ -45,7 +48,7 @@ module imm_gen (
             `OP_LOAD,
             `OP_OP_IMM,
             `OP_JALR: begin
-                imm_out = {{20{instruction[31]}}, instruction[31:20]};
+                imm_out = {{XLEN-12{instruction[31]}}, instruction[31:20]};
             end
 
             //================================================================
@@ -57,7 +60,7 @@ module imm_gen (
             //   imm[4:0]  = instruction[11:7]
             //================================================================
             `OP_STORE: begin
-                imm_out = {{20{instruction[31]}},
+                imm_out = {{(XLEN-12){instruction[31]}},
                            instruction[31:25],
                            instruction[11:7]};
             end
@@ -74,7 +77,7 @@ module imm_gen (
             //   imm[0]    = 0
             //================================================================
             `OP_BRANCH: begin
-                imm_out = {{19{instruction[31]}},
+                imm_out = {{(XLEN-13){instruction[31]}},
                            instruction[31],
                            instruction[7],
                            instruction[30:25],
@@ -92,7 +95,9 @@ module imm_gen (
             //================================================================
             `OP_LUI,
             `OP_AUIPC: begin
-                imm_out = {instruction[31:12], 12'b0};
+                imm_out = {{(XLEN-32){instruction[31]}},
+                           instruction[31:12],
+                           12'b0};
             end
 
             //================================================================
@@ -107,7 +112,7 @@ module imm_gen (
             //   imm[0]     = 0
             //================================================================
             `OP_JAL: begin
-                imm_out = {{11{instruction[31]}},
+                imm_out = {{(XLEN-21){instruction[31]}},
                            instruction[31],
                            instruction[19:12],
                            instruction[20],
@@ -119,7 +124,7 @@ module imm_gen (
             // DEFAULT
             //================================================================
             default: begin
-                imm_out = 32'b0;
+                imm_out = {XLEN{1'b0}};
             end
 
         endcase
