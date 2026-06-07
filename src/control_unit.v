@@ -166,9 +166,13 @@ module control_unit(
             wb_sel     = `WB_ALU;
             is_word_op = 1'b1;
 
+            // NOTE: funct3 case labels must be unique literals. Several RV64
+            // word ops share a funct3 with an M-ext word op (e.g. SRLW/SRAW and
+            // DIVUW both use 101), so they are merged into a single label and
+            // disambiguated by funct7 inside the branch.
             case (funct3)
-                // ADDW, SUBW, MULW
-                `FN_ADD_SUB, `FN_MULW: begin
+                // funct3 000 : ADDW (BASE) / SUBW (SUB_SRA) / MULW (M_EXT)
+                `FN_ADD_SUB: begin
                     if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA) || (funct7 == `F7_M_EXT)) begin
                         reg_write  = 1'b1;
                         alu_ctrl   = funct3;
@@ -179,9 +183,9 @@ module control_unit(
                     end
                 end
 
-                // SLLW, DIVW, REMW, REMUW
-                `FN_SLL, `FN_DIVW, `FN_REMW, `FN_REMUW: begin
-                    if ((funct7 == `F7_BASE && funct3 == `FN_SLL) || (funct7 == `F7_M_EXT)) begin
+                // funct3 001 : SLLW (BASE only)
+                `FN_SLL: begin
+                    if (funct7 == `F7_BASE) begin
                         reg_write  = 1'b1;
                         alu_ctrl   = funct3;
                         funct7_out = funct7;
@@ -191,9 +195,45 @@ module control_unit(
                     end
                 end
 
-                // SRLW, SRAW, DIVUW
-                `FN_SRL_SRA, `FN_DIVUW: begin
+                // funct3 100 : DIVW (M_EXT only)
+                `FN_DIVW: begin
+                    if (funct7 == `F7_M_EXT) begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = funct7;
+                    end
+                    else begin
+                        illegal_instr = 1'b1;
+                    end
+                end
+
+                // funct3 101 : SRLW (BASE) / SRAW (SUB_SRA) / DIVUW (M_EXT)
+                `FN_SRL_SRA: begin
                     if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA) || (funct7 == `F7_M_EXT)) begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = funct7;
+                    end
+                    else begin
+                        illegal_instr = 1'b1;
+                    end
+                end
+
+                // funct3 110 : REMW (M_EXT only)
+                `FN_REMW: begin
+                    if (funct7 == `F7_M_EXT) begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = funct7;
+                    end
+                    else begin
+                        illegal_instr = 1'b1;
+                    end
+                end
+
+                // funct3 111 : REMUW (M_EXT only)
+                `FN_REMUW: begin
+                    if (funct7 == `F7_M_EXT) begin
                         reg_write  = 1'b1;
                         alu_ctrl   = funct3;
                         funct7_out = funct7;
@@ -232,11 +272,18 @@ module control_unit(
                     end
 
                     `FN_SLL: begin
-                        // SLLI requires funct7 = 0000000 in RV32I
-                        if (funct7 == `F7_BASE) begin
+                        // SLLI in RV64I uses a 6-bit shamt: instruction[25:20].
+                        // The shift-type selector lives in instruction[31:26]
+                        // (funct7[6:1]), and bit 25 (funct7[0]) is shamt[5].
+                        // So we must check only the top 6 bits, not the full
+                        // funct7 — otherwise shamt >= 32 sets bit 25 and a valid
+                        // SLLI is wrongly flagged illegal.
+                        if (funct7[6:1] == 6'b000000) begin
                             reg_write  = 1'b1;
                             alu_ctrl   = funct3;
-                            funct7_out = funct7;
+                            // Forward a clean funct7 so the ALU never sees the
+                            // shamt bit leak into its SRL/SRA/ROT discriminator.
+                            funct7_out = `F7_BASE;
                         end
                         else begin
                             illegal_instr = 1'b1;
@@ -244,12 +291,19 @@ module control_unit(
                     end
 
                     `FN_SRL_SRA: begin
-                        // SRLI -> 0000000
-                        // SRAI -> 0100000
-                        if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA)) begin
+                        // RV64I 6-bit shamt: distinguish SRLI vs SRAI using only
+                        // the top 6 bits of the funct7 field (instruction[31:26]),
+                        // ignoring bit 25 which is shamt[5].
+                        //   SRLI -> 000000 , SRAI -> 010000
+                        if (funct7[6:1] == 6'b000000) begin
                             reg_write  = 1'b1;
                             alu_ctrl   = funct3;
-                            funct7_out = funct7;
+                            funct7_out = `F7_BASE;      // clean SRL selector
+                        end
+                        else if (funct7[6:1] == 6'b010000) begin
+                            reg_write  = 1'b1;
+                            alu_ctrl   = funct3;
+                            funct7_out = `F7_SUB_SRA;   // clean SRA selector
                         end
                         else begin
                             illegal_instr = 1'b1;

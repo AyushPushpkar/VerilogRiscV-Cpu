@@ -532,9 +532,9 @@ class Assembler:
             for line in self.out:
                 f.write(line + "\n")
 
-        print(f"✅ Assembled {len(self.out)} instructions")
-        print(f"📍 Labels: {self.labels}")
-        print(f"💾 Output → {outfile}")
+        print(f"[OK] Assembled {len(self.out)} instructions")
+        print(f"[labels] {self.labels}")
+        print(f"[out] {outfile}")
 
 # ============================================================
 # MAIN
