@@ -94,64 +94,125 @@ module alu #(
     // MAIN EXECUTION LOGIC
     //========================================================================
     always @(*) begin
-        result      = {XLEN{1'b0}};
-        word_result = 32'b0;
-
-        //====================================================================
-        // RV64 WORD OPERATIONS
-        // ADDW, SUBW, SLLW, SRLW, SRAW, ADDIW, SLLIW, SRLIW, SRAIW
-        //====================================================================
-        if (is_word_op) begin
-            case (funct3)
-
-                // ADDW / SUBW / ADDIW
-                `FN_ADD_SUB: begin
-                    case (funct7)
-                        `F7_BASE: begin
-                            word_result = A_word + B_word;
-                            result = {{(XLEN-32){word_result[31]}}, word_result};
-                        end
-
-                        `F7_SUB_SRA: begin
-                            word_result = A_word - B_word;
-                            result = {{(XLEN-32){word_result[31]}}, word_result};
-                        end
-
-                        default: result = {XLEN{1'b0}};
-                    endcase
-                end
-
-                // SLLW / SLLIW
-                `FN_SLL: begin
-                    if (funct7 == `F7_BASE) begin
-                        word_result = A_word << word_shamt;
+        result = {XLEN{1'b0}};
+       word_result = 32'b0;
+       
+     //====================================================================
+    // RV64 WORD OPERATIONS
+    // ADDW, SUBW, SLLW, SRLW, SRAW
+    // ADDIW, SLLIW, SRLIW, SRAIW
+    // RV64M: MULW, DIVW, DIVUW, REMW, REMUW
+    //====================================================================
+    if (is_word_op) begin
+        case (funct3)
+            // ADDW / SUBW / ADDIW / MULW
+            `FN_ADD_SUB: begin
+                case (funct7)
+                    `F7_BASE: begin
+                        word_result = A_word + B_word;
                         result = {{(XLEN-32){word_result[31]}}, word_result};
                     end
-                    else begin
-                        result = {XLEN{1'b0}};
+                    `F7_SUB_SRA: begin
+                        word_result = A_word - B_word;
+                        result = {{(XLEN-32){word_result[31]}}, word_result};
                     end
+                    `F7_M_EXT: begin // MULW
+                        word_result = A_word_s * $signed(B_word);
+                        result = {{(XLEN-32){word_result[31]}}, word_result};
+                    end
+                    default: result = {XLEN{1'b0}};
+                endcase
+            end
+
+            // SLLW / SLLIW
+            `FN_SLL: begin
+                if (funct7 == `F7_BASE) begin
+                    word_result = A_word << word_shamt;
+                    result = {{(XLEN-32){word_result[31]}}, word_result};
                 end
+                else result = {XLEN{1'b0}};
+            end
 
-                // SRLW / SRLIW / SRAW / SRAIW
-                `FN_SRL_SRA: begin
-                    case (funct7)
-                        `F7_BASE: begin
-                            word_result = A_word >> word_shamt;
-                            result = {{(XLEN-32){word_result[31]}}, word_result};
-                        end
+            // SRLW / SRAW / SRLIW / SRAIW
+            `FN_SRL_SRA: begin
+                case (funct7)
+                    `F7_BASE: begin
+                        word_result = A_word >> word_shamt;
+                        result = {{(XLEN-32){word_result[31]}}, word_result};
+                    end
+                    `F7_SUB_SRA: begin
+                        word_result = A_word_s >>> word_shamt;
+                        result = {{(XLEN-32){word_result[31]}}, word_result};
+                    end
+                    default: result = {XLEN{1'b0}};
+                endcase
+            end
 
-                        `F7_SUB_SRA: begin
-                            word_result = A_word_s >>> word_shamt;
-                            result = {{(XLEN-32){word_result[31]}}, word_result};
-                        end
-
-                        default: result = {XLEN{1'b0}};
-                    endcase
+            // DIVW
+            `FN_DIV: begin
+                if (funct7 == `F7_M_EXT) begin
+                    if (B_word == 32'b0) begin
+                        word_result = 32'hFFFFFFFF; // -1
+                    end
+                    else if ((A_word == 32'h80000000) && (B_word == 32'hFFFFFFFF)) begin
+                        word_result = 32'h80000000;
+                    end
+                    else begin
+                        word_result = A_word_s / $signed(B_word);
+                    end
+                    result = {{(XLEN-32){word_result[31]}}, word_result};
                 end
+                else result = {XLEN{1'b0}};
+            end
 
-                default: result = {XLEN{1'b0}};
-            endcase
-        end
+            // DIVUW
+            `FN_DIVU: begin
+                if (funct7 == `F7_M_EXT) begin
+                    if (B_word == 32'b0) begin
+                        word_result = 32'hFFFFFFFF;
+                    end
+                    else begin
+                        word_result = A_word / B_word;
+                    end
+                    result = {{(XLEN-32){word_result[31]}}, word_result};
+                end
+                else result = {XLEN{1'b0}};
+            end
+
+            // REMW
+            `FN_REM: begin
+                if (funct7 == `F7_M_EXT) begin
+                    if (B_word == 32'b0) begin
+                        word_result = A_word;
+                    end
+                    else if ((A_word == 32'h80000000) && (B_word == 32'hFFFFFFFF)) begin
+                        word_result = 32'b0;
+                    end
+                    else begin
+                        word_result = A_word_s % $signed(B_word);
+                    end
+                    result = {{(XLEN-32){word_result[31]}}, word_result};
+                end
+                else result = {XLEN{1'b0}};
+            end
+
+            // REMUW
+            `FN_REMU: begin
+                if (funct7 == `F7_M_EXT) begin
+                    if (B_word == 32'b0) begin
+                        word_result = A_word;
+                    end
+                    else begin
+                        word_result = A_word % B_word;
+                    end
+                    result = {{(XLEN-32){word_result[31]}}, word_result};
+                end
+                else result = {XLEN{1'b0}};
+            end
+
+            default: result = {XLEN{1'b0}};
+        endcase
+    end
 
         //====================================================================
         // RV64M OPERATIONS
@@ -237,20 +298,28 @@ module alu #(
                 end
 
                 //============================================================
-                // SHIFT LEFT — SLL / SLLI
-                //   F7_BASE -> SLL
+                // SHIFT LEFT
+                // Valid funct7:
+                //   F7_BASE -> SLL / SLLI
                 //   F7_ROT  -> ROL (B-extension)
                 //============================================================
                 `FN_SLL: begin
-                    case (funct7)
-                        `F7_BASE: result = A << B[SHIFT_WIDTH-1:0];
-
+                    case(funct7)
+                        `F7_BASE: begin
+                            result = A << B[SHIFT_WIDTH-1:0];
+                        end
+                        //B-extension : ROL
                         `F7_ROT: begin
-                            if (B[SHIFT_WIDTH-1:0] == 0)
+                            if (B[SHIFT_WIDTH-1:0] == 0) begin
                                 result = A;
-                            else
+                            end
+                            else begin
                                 result = (A << B[SHIFT_WIDTH-1:0]) |
-                                         (A >> (XLEN - B[SHIFT_WIDTH-1:0]));
+                                    (A >> (XLEN - B[SHIFT_WIDTH-1:0]));
+                            end
+                        end
+                        default: begin
+                            result = {XLEN{1'b0}};
                         end
 
                         default: result = {XLEN{1'b0}};
@@ -293,9 +362,10 @@ module alu #(
                 end
 
                 //============================================================
-                // SHIFT RIGHT — SRL / SRLI / SRA / SRAI
-                //   F7_BASE    -> SRL
-                //   F7_SUB_SRA -> SRA
+                // SHIFT RIGHT
+                // Valid funct7:
+                //   F7_BASE    -> SRL / SRLI
+                //   F7_SUB_SRA -> SRA / SRAI
                 //   F7_ROT     -> ROR (B-extension)
                 //============================================================
                 `FN_SRL_SRA: begin
@@ -303,33 +373,48 @@ module alu #(
                         `F7_BASE:    result = A >> B[SHIFT_WIDTH-1:0];
                         `F7_SUB_SRA: result = A_s >>> B[SHIFT_WIDTH-1:0];
 
+                        `F7_SUB_SRA: begin
+                            result = A_s >>> B[SHIFT_WIDTH-1:0];
+                        end
+                        //B-extension : ROR
                         `F7_ROT: begin
                             if (B[SHIFT_WIDTH-1:0] == 0)
                                 result = A;
                             else
                                 result = (A >> B[SHIFT_WIDTH-1:0]) |
-                                         (A << (XLEN - B[SHIFT_WIDTH-1:0]));
+                                    (A << (XLEN - B[SHIFT_WIDTH-1:0]));
+                            end
                         end
-
-                        default: result = {XLEN{1'b0}};
+                        default: begin
+                            result = {XLEN{1'b0}};
+                        end
                     endcase
                 end
 
                 //============================================================
                 // OR
+                // Valid funct7:
                 //   F7_BASE -> OR
                 //   F7_ORN  -> ORN (B-extension)
                 //============================================================
                 `FN_OR: begin
-                    case (funct7)
-                        `F7_BASE: result = A | B;
-                        `F7_ORN:  result = A | ~B;
-                        default:  result = {XLEN{1'b0}};
+                    case(funct7)
+                        `F7_BASE: begin
+                            result = A | B;
+                        end
+                        //B-extension : ORN
+                        `F7_ORN: begin
+                            result = A | ~B;
+                        end
+                        default: begin
+                            result = {XLEN{1'b0}};
+                        end
                     endcase
                 end
 
                 //============================================================
                 // AND
+                // Valid funct7:
                 //   F7_BASE -> AND
                 //   F7_ANDN -> ANDN (B-extension)
                 //============================================================

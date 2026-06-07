@@ -59,7 +59,7 @@ module instruction_memory #(
     //========================================================================
     // MISALIGNMENT DETECTION
     //========================================================================
-    // RV32I (without compressed instructions) expects 4-byte aligned fetches.
+    // RV64I (without compressed instructions) expects 4-byte aligned fetches.
     assign instr_misaligned = |address[1:0];
 
     //========================================================================

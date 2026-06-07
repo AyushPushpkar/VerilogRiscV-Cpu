@@ -16,13 +16,6 @@
 //   - Misalignment detection outputs
 //   - Out-of-bounds detection outputs
 //   - Safe default read behavior when access is disabled / invalid
-//
-// DESIGN NOTES:
-//   - Uses byte-level storage so byte, halfword, word, and doubleword accesses are natural
-//   - Misaligned accesses are detected and flagged
-//   - Out-of-range accesses are detected and flagged
-//   - This module does not implement traps/exceptions by itself
-//   - Invalid, misaligned, or out-of-range accesses are suppressed safely
 //================================================================================
 
 `timescale 1ns/1ns
@@ -36,7 +29,7 @@ module data_memory #(
     input                       mem_read,
     input                       mem_write,
     input      [2:0]            funct3,
-    input      [ADDR_WIDTH-1:0] address,       // byte address
+    input      [XLEN-1:0]       address,       // Full 64-bit address for bounds checking
     input      [XLEN-1:0]       write_data,
 
     output reg [XLEN-1:0]       read_data,
@@ -53,6 +46,9 @@ module data_memory #(
 
     reg [7:0] mem [0:MEM_BYTES-1];
 
+    // Local index to safely route the masked address into the internal array
+    wire [ADDR_WIDTH-1:0] local_idx = address[ADDR_WIDTH-1:0];
+
     //========================================================================
     // INITIALIZATION
     //========================================================================
@@ -63,67 +59,32 @@ module data_memory #(
     end
 
     //========================================================================
-    // ACCESS CLASSIFICATION
-    //========================================================================
-    wire is_lb  = (funct3 == `LD_LB);
-    wire is_lh  = (funct3 == `LD_LH);
-    wire is_lw  = (funct3 == `LD_LW);
-    wire is_ld  = (funct3 == `LD_LD);
-    wire is_lbu = (funct3 == `LD_LBU);
-    wire is_lhu = (funct3 == `LD_LHU);
-    wire is_lwu = (funct3 == `LD_LWU);
-
-    wire is_sb  = (funct3 == `ST_SB);
-    wire is_sh  = (funct3 == `ST_SH);
-    wire is_sw  = (funct3 == `ST_SW);
-    wire is_sd  = (funct3 == `ST_SD);
-
-    //========================================================================
     // MISALIGNMENT / ILLEGAL FUNCT3 / OUT-OF-BOUNDS DETECTION
     //========================================================================
-    // RV64I alignment expectations:
-    //   byte        -> always aligned
-    //   halfword    -> address[0] must be 0
-    //   word        -> address[1:0] must be 00
-    //   doubleword  -> address[2:0] must be 000
-    //
-    // Bounds expectations:
-    //   byte        -> address <= MEM_BYTES - 1
-    //   halfword    -> address <= MEM_BYTES - 2
-    //   word        -> address <= MEM_BYTES - 4
-    //   doubleword  -> address <= MEM_BYTES - 8
-    //========================================================================
     always @(*) begin
+        // Default everything to 0 to prevent latching
         misaligned_access = 1'b0;
         illegal_funct3    = 1'b0;
         addr_oob          = 1'b0;
 
         if (mem_read) begin
             case (funct3)
-
-                `LD_LB,
-                `LD_LBU: begin
+                `LD_LB, `LD_LBU: begin
                     misaligned_access = 1'b0;
                     addr_oob          = (address > (MEM_BYTES - 1));
                 end
-
-                `LD_LH,
-                `LD_LHU: begin
+                `LD_LH, `LD_LHU: begin
                     misaligned_access = address[0];
                     addr_oob          = (address > (MEM_BYTES - 2));
                 end
-
-                `LD_LW,
-                `LD_LWU: begin
+                `LD_LW, `LD_LWU: begin
                     misaligned_access = |address[1:0];
                     addr_oob          = (address > (MEM_BYTES - 4));
                 end
-
                 `LD_LD: begin
                     misaligned_access = |address[2:0];
                     addr_oob          = (address > (MEM_BYTES - 8));
                 end
-
                 default: begin
                     illegal_funct3 = 1'b1;
                 end
@@ -131,61 +92,59 @@ module data_memory #(
         end
         else if (mem_write) begin
             case (funct3)
-
                 `ST_SB: begin
                     misaligned_access = 1'b0;
                     addr_oob          = (address > (MEM_BYTES - 1));
                 end
-
                 `ST_SH: begin
                     misaligned_access = address[0];
                     addr_oob          = (address > (MEM_BYTES - 2));
                 end
-
                 `ST_SW: begin
                     misaligned_access = |address[1:0];
                     addr_oob          = (address > (MEM_BYTES - 4));
                 end
-
                 `ST_SD: begin
                     misaligned_access = |address[2:0];
                     addr_oob          = (address > (MEM_BYTES - 8));
                 end
-
                 default: begin
                     illegal_funct3 = 1'b1;
                 end
             endcase
+        end
+        else begin
+            // Idle state: neither reading nor writing
+            misaligned_access = 1'b0;
+            illegal_funct3    = 1'b0;
+            addr_oob          = 1'b0;
         end
     end
 
     //========================================================================
     // BYTE / HALFWORD / WORD / DOUBLEWORD VIEWS
     //========================================================================
-    // Little-endian assembly:
-    //   lowest address = least significant byte
-    //========================================================================
-    wire [7:0] byte_at_addr = mem[address];
+    wire [7:0] byte_at_addr = mem[local_idx];
 
     wire [15:0] half_at_addr =
-        { mem[address + 1],
-          mem[address + 0] };
+        { mem[local_idx + 1],
+          mem[local_idx + 0] };
 
     wire [31:0] word_at_addr =
-        { mem[address + 3],
-          mem[address + 2],
-          mem[address + 1],
-          mem[address + 0] };
+        { mem[local_idx + 3],
+          mem[local_idx + 2],
+          mem[local_idx + 1],
+          mem[local_idx + 0] };
 
     wire [63:0] double_at_addr =
-        { mem[address + 7],
-          mem[address + 6],
-          mem[address + 5],
-          mem[address + 4],
-          mem[address + 3],
-          mem[address + 2],
-          mem[address + 1],
-          mem[address + 0] };
+        { mem[local_idx + 7],
+          mem[local_idx + 6],
+          mem[local_idx + 5],
+          mem[local_idx + 4],
+          mem[local_idx + 3],
+          mem[local_idx + 2],
+          mem[local_idx + 1],
+          mem[local_idx + 0] };
 
     //========================================================================
     // ASYNCHRONOUS READ
@@ -195,59 +154,14 @@ module data_memory #(
 
         if (mem_read && !illegal_funct3 && !misaligned_access && !addr_oob) begin
             case (funct3)
-
-                //============================================================
-                // LB : sign-extend byte to XLEN
-                //============================================================
-                `LD_LB: begin
-                    read_data = {{(XLEN-8){byte_at_addr[7]}}, byte_at_addr};
-                end
-
-                //============================================================
-                // LH : sign-extend halfword to XLEN
-                //============================================================
-                `LD_LH: begin
-                    read_data = {{(XLEN-16){half_at_addr[15]}}, half_at_addr};
-                end
-
-                //============================================================
-                // LW : sign-extend word to XLEN
-                //============================================================
-                `LD_LW: begin
-                    read_data = {{(XLEN-32){word_at_addr[31]}}, word_at_addr};
-                end
-
-                //============================================================
-                // LD : load full 64-bit doubleword
-                //============================================================
-                `LD_LD: begin
-                    read_data = double_at_addr;
-                end
-
-                //============================================================
-                // LBU : zero-extend byte to XLEN
-                //============================================================
-                `LD_LBU: begin
-                    read_data = {{(XLEN-8){1'b0}}, byte_at_addr};
-                end
-
-                //============================================================
-                // LHU : zero-extend halfword to XLEN
-                //============================================================
-                `LD_LHU: begin
-                    read_data = {{(XLEN-16){1'b0}}, half_at_addr};
-                end
-
-                //============================================================
-                // LWU : zero-extend word to XLEN
-                //============================================================
-                `LD_LWU: begin
-                    read_data = {{(XLEN-32){1'b0}}, word_at_addr};
-                end
-
-                default: begin
-                    read_data = {XLEN{1'b0}};
-                end
+                `LD_LB:  read_data = {{(XLEN-8){byte_at_addr[7]}}, byte_at_addr};
+                `LD_LH:  read_data = {{(XLEN-16){half_at_addr[15]}}, half_at_addr};
+                `LD_LW:  read_data = {{(XLEN-32){word_at_addr[31]}}, word_at_addr};
+                `LD_LD:  read_data = double_at_addr;
+                `LD_LBU: read_data = {{(XLEN-8){1'b0}}, byte_at_addr};
+                `LD_LHU: read_data = {{(XLEN-16){1'b0}}, half_at_addr};
+                `LD_LWU: read_data = {{(XLEN-32){1'b0}}, word_at_addr};
+                default: read_data = {XLEN{1'b0}};
             endcase
         end
     end
@@ -255,56 +169,31 @@ module data_memory #(
     //========================================================================
     // SYNCHRONOUS WRITE
     //========================================================================
-    // Stores are suppressed on:
-    //   - invalid funct3
-    //   - misaligned access
-    //   - out-of-bounds access
-    //========================================================================
     always @(posedge clk) begin
         if (mem_write && !illegal_funct3 && !misaligned_access && !addr_oob) begin
             case (funct3)
-
-                //============================================================
-                // SB : store byte
-                //============================================================
                 `ST_SB: begin
-                    mem[address] <= write_data[7:0];
+                    mem[local_idx] <= write_data[7:0];
                 end
-
-                //============================================================
-                // SH : store halfword
-                //============================================================
                 `ST_SH: begin
-                    mem[address + 0] <= write_data[7:0];
-                    mem[address + 1] <= write_data[15:8];
+                    mem[local_idx + 0] <= write_data[7:0];
+                    mem[local_idx + 1] <= write_data[15:8];
                 end
-
-                //============================================================
-                // SW : store word
-                //============================================================
                 `ST_SW: begin
-                    mem[address + 0] <= write_data[7:0];
-                    mem[address + 1] <= write_data[15:8];
-                    mem[address + 2] <= write_data[23:16];
-                    mem[address + 3] <= write_data[31:24];
+                    mem[local_idx + 0] <= write_data[7:0];
+                    mem[local_idx + 1] <= write_data[15:8];
+                    mem[local_idx + 2] <= write_data[23:16];
+                    mem[local_idx + 3] <= write_data[31:24];
                 end
-
-                //============================================================
-                // SD : store doubleword
-                //============================================================
                 `ST_SD: begin
-                    mem[address + 0] <= write_data[7:0];
-                    mem[address + 1] <= write_data[15:8];
-                    mem[address + 2] <= write_data[23:16];
-                    mem[address + 3] <= write_data[31:24];
-                    mem[address + 4] <= write_data[39:32];
-                    mem[address + 5] <= write_data[47:40];
-                    mem[address + 6] <= write_data[55:48];
-                    mem[address + 7] <= write_data[63:56];
-                end
-
-                default: begin
-                    // No write for unsupported store encoding
+                    mem[local_idx + 0] <= write_data[7:0];
+                    mem[local_idx + 1] <= write_data[15:8];
+                    mem[local_idx + 2] <= write_data[23:16];
+                    mem[local_idx + 3] <= write_data[31:24];
+                    mem[local_idx + 4] <= write_data[39:32];
+                    mem[local_idx + 5] <= write_data[47:40];
+                    mem[local_idx + 6] <= write_data[55:48];
+                    mem[local_idx + 7] <= write_data[63:56];
                 end
             endcase
         end
