@@ -1,5 +1,5 @@
 //================================================================================
-// CPU Top Level - RV64I + RV64M (Single-Cycle, Tightened and Extended)
+// CPU Top Level - RV64I + RV64M (Single-Cycle )
 //================================================================================
 // Single-cycle 64-bit RISC-V style CPU with:
 //   - 64-bit architectural PC / address path
@@ -331,7 +331,7 @@ module cpu_top #(
         .mem_read          (mem_read_safe && !is_mmio_addr),
         .mem_write         (mem_write_safe && !is_mmio_addr),
         .funct3            (funct3),
-        .address           (alu_result[DATA_ADDR_WIDTH-1:0]),
+        .address           (alu_result), 
         .write_data        (reg_read2),
         .read_data         (mem_read_data),
         .misaligned_access (data_misaligned),

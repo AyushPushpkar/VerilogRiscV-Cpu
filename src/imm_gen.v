@@ -40,15 +40,16 @@ module imm_gen #(
 
             //================================================================
             // I-TYPE
-            //   LOAD, OP-IMM, JALR
+            //   LOAD, OP-IMM, OP-IMM-32, JALR
             //
             // Layout:
             //   imm[11:0] = instruction[31:20]
             //================================================================
             `OP_LOAD,
             `OP_OP_IMM,
+            `OP_OP_IMM_32, // Added for RV64 word-immediate operations
             `OP_JALR: begin
-                imm_out = {{XLEN-12{instruction[31]}}, instruction[31:20]};
+                imm_out = {{(XLEN-12){instruction[31]}}, instruction[31:20]};
             end
 
             //================================================================

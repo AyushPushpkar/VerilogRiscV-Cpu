@@ -1,5 +1,3 @@
-# TODO python tools/assembler.py program.asm program.mem
-
 #!/usr/bin/env python3
 import sys
 
@@ -55,6 +53,13 @@ FUNCT3 = {
     "SLLW": 0b001,
     "SRLW": 0b101,
     "SRAW": 0b101,
+
+    # RV64M word register-register
+    "MULW":  0b000,
+    "DIVW":  0b100,
+    "DIVUW": 0b101,
+    "REMW":  0b110,
+    "REMUW": 0b111,
 
     # RV64 word immediate
     "ADDIW": 0b000,
@@ -127,7 +132,7 @@ FUNCT7 = {
     "SRLW": 0x00,
     "SRAW": 0x20,
 
-    # M-extension
+    # M-extension (64-bit and 32-bit variants)
     "MUL":    0x01,
     "MULH":   0x01,
     "MULHSU": 0x01,
@@ -136,6 +141,11 @@ FUNCT7 = {
     "DIVU":   0x01,
     "REM":    0x01,
     "REMU":   0x01,
+    "MULW":   0x01,
+    "DIVW":   0x01,
+    "DIVUW":  0x01,
+    "REMW":   0x01,
+    "REMUW":  0x01,
 
     # B-extension subset
     "ANDN": 0x20,
@@ -157,6 +167,7 @@ R_TYPE = [
 
 R_TYPE_32 = [
     "ADDW", "SUBW", "SLLW", "SRLW", "SRAW",
+    "MULW", "DIVW", "DIVUW", "REMW", "REMUW",
 ]
 
 I_TYPE = [
@@ -294,8 +305,10 @@ def B(rs1, rs2, im, f3):
 
 
 def U(rd, im, opcode):
+    # Mask to 20 bits, then shift to [31:12]
+    im &= 0xFFFFF
     return (
-        (im & 0xFFFFF000)
+        (im << 12)
         | (rd << 7)
         | opcode
     )
@@ -466,11 +479,12 @@ class Assembler:
 
             # ================= JALR =================
             elif op == "JALR":
-                rd, rs1, imv = reg(p[1]), reg(p[2]), imm(p[3])
+                rd = reg(p[1])
+                off, rs1 = parse_mem_operand(p[2])
                 inst = I(
                     rd,
                     rs1,
-                    imv,
+                    off,
                     0b000,
                     OPCODES["JALR"]
                 )
@@ -518,9 +532,9 @@ class Assembler:
             for line in self.out:
                 f.write(line + "\n")
 
-        print(f"✅ Assembled {len(self.out)} instructions")
-        print(f"📍 Labels: {self.labels}")
-        print(f"💾 Output → {outfile}")
+        print(f"[OK] Assembled {len(self.out)} instructions")
+        print(f"[labels] {self.labels}")
+        print(f"[out] {outfile}")
 
 # ============================================================
 # MAIN

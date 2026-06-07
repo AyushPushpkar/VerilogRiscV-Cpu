@@ -8,10 +8,10 @@
 //   - Intended for early instruction grouping, monitoring, or future pipeline use
 //
 // CLASSIFICATION OUTPUTS:
-//   is_mul_div       : RV32M OP-class instruction
+//   is_mul_div       : RV64M OP-class instruction (32-bit and 64-bit)
 //   is_memory        : Any load/store instruction
-//   is_load          : RV32I load instruction
-//   is_store         : RV32I store instruction
+//   is_load          : RV64I load instruction
+//   is_store         : RV64I store instruction
 //   is_control_flow  : Any branch/jump instruction
 //   is_branch        : Conditional branch
 //   is_jump          : JAL or JALR
@@ -53,13 +53,13 @@ module pre_decoder #(
         //====================================================================
         // DEFAULTS
         //====================================================================
-        is_mul_div       = 1'b0;
-        is_memory        = 1'b0;
-        is_load          = 1'b0;
-        is_store         = 1'b0;
-        is_control_flow  = 1'b0;
-        is_branch        = 1'b0;
-        is_jump          = 1'b0;
+        is_mul_div        = 1'b0;
+        is_memory         = 1'b0;
+        is_load           = 1'b0;
+        is_store          = 1'b0;
+        is_control_flow   = 1'b0;
+        is_branch         = 1'b0;
+        is_jump           = 1'b0;
         illegal_predecode = 1'b0;
 
         //====================================================================
@@ -78,8 +78,10 @@ module pre_decoder #(
                     `LD_LB,
                     `LD_LH,
                     `LD_LW,
+                    `LD_LD,
                     `LD_LBU,
-                    `LD_LHU: begin
+                    `LD_LHU,
+                    `LD_LWU: begin
                         // valid load subtype
                     end
 
@@ -99,7 +101,8 @@ module pre_decoder #(
                 case (funct3)
                     `ST_SB,
                     `ST_SH,
-                    `ST_SW: begin
+                    `ST_SW,
+                    `ST_SD: begin
                         // valid store subtype
                     end
 
@@ -149,8 +152,8 @@ module pre_decoder #(
             end
 
             //================================================================
-            // OP-CLASS INSTRUCTIONS
-            //   Detect RV32M through funct7
+            // OP-CLASS INSTRUCTIONS (64-BIT)
+            //   Detect RV64M and RV64B through funct7
             //================================================================
             `OP_OP: begin
                 if (funct7 == `F7_M_EXT) begin
@@ -171,8 +174,37 @@ module pre_decoder #(
                         end
                     endcase
                 end
+                else if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA) ||
+                         (funct7 == `F7_ANDN) || (funct7 == `F7_ORN) ||
+                         (funct7 == `F7_XNOR) || (funct7 == `F7_ROT)) begin
+                    // legal RV64I and RV64B OP-class encoding family at predecode level
+                end
+                else begin
+                    illegal_predecode = 1'b1;
+                end
+            end
+
+            //================================================================
+            // WORD-LEVEL OP-CLASS INSTRUCTIONS (32-BIT)
+            //================================================================
+            `OP_OP_32: begin
+                if (funct7 == `F7_M_EXT) begin
+                    case (funct3)
+                        `FN_MULW,
+                        `FN_DIVW,
+                        `FN_DIVUW,
+                        `FN_REMW,
+                        `FN_REMUW: begin
+                            is_mul_div = 1'b1;
+                        end
+                        
+                        default: begin
+                            illegal_predecode = 1'b1;
+                        end
+                    endcase
+                end
                 else if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA)) begin
-                    // legal RV32I OP-class encoding family at predecode level
+                    // legal RV64I word-level OP-class
                 end
                 else begin
                     illegal_predecode = 1'b1;
@@ -183,6 +215,7 @@ module pre_decoder #(
             // OTHER SUPPORTED ARCHITECTURAL CLASSES
             //================================================================
             `OP_OP_IMM,
+            `OP_OP_IMM_32,
             `OP_LUI,
             `OP_AUIPC: begin
                 // supported classes, nothing special to classify here

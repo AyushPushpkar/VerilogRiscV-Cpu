@@ -8,6 +8,7 @@
 
 # Icarus Verilog build/runtime artifacts
 *.vvp
+*.vcd
 cpu_sim
 simv
 

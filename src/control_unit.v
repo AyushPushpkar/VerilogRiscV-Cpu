@@ -156,58 +156,98 @@ module control_unit(
                 endcase
             end
        //====================================================================
-// RV64 WORD REGISTER-REGISTER OPERATIONS
-//   ADDW, SUBW, SLLW, SRLW, SRAW
-//====================================================================
-`OP_OP_32: begin
-    alu_a_sel  = `ASEL_RS1;
-    alu_src    = 1'b0;
-    wb_sel     = `WB_ALU;
-    is_word_op = 1'b1;
+        // RV64 WORD REGISTER-REGISTER OPERATIONS
+        //   RV64I: ADDW, SUBW, SLLW, SRLW, SRAW
+        //   RV64M: MULW, DIVW, DIVUW, REMW, REMUW
+        //====================================================================
+        `OP_OP_32: begin
+            alu_a_sel  = `ASEL_RS1;
+            alu_src    = 1'b0;
+            wb_sel     = `WB_ALU;
+            is_word_op = 1'b1;
 
-    case (funct3)
+            // NOTE: funct3 case labels must be unique literals. Several RV64
+            // word ops share a funct3 with an M-ext word op (e.g. SRLW/SRAW and
+            // DIVUW both use 101), so they are merged into a single label and
+            // disambiguated by funct7 inside the branch.
+            case (funct3)
+                // funct3 000 : ADDW (BASE) / SUBW (SUB_SRA) / MULW (M_EXT)
+                `FN_ADD_SUB: begin
+                    if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA) || (funct7 == `F7_M_EXT)) begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = funct7;
+                    end
+                    else begin
+                        illegal_instr = 1'b1;
+                    end
+                end
 
-        `FN_ADD_SUB: begin
-            if ((funct7 == `F7_BASE) ||
-                (funct7 == `F7_SUB_SRA)) begin
-                reg_write  = 1'b1;
-                alu_ctrl   = funct3;
-                funct7_out = funct7;
-            end
-            else begin
-                illegal_instr = 1'b1;
-            end
+                // funct3 001 : SLLW (BASE only)
+                `FN_SLL: begin
+                    if (funct7 == `F7_BASE) begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = funct7;
+                    end
+                    else begin
+                        illegal_instr = 1'b1;
+                    end
+                end
+
+                // funct3 100 : DIVW (M_EXT only)
+                `FN_DIVW: begin
+                    if (funct7 == `F7_M_EXT) begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = funct7;
+                    end
+                    else begin
+                        illegal_instr = 1'b1;
+                    end
+                end
+
+                // funct3 101 : SRLW (BASE) / SRAW (SUB_SRA) / DIVUW (M_EXT)
+                `FN_SRL_SRA: begin
+                    if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA) || (funct7 == `F7_M_EXT)) begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = funct7;
+                    end
+                    else begin
+                        illegal_instr = 1'b1;
+                    end
+                end
+
+                // funct3 110 : REMW (M_EXT only)
+                `FN_REMW: begin
+                    if (funct7 == `F7_M_EXT) begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = funct7;
+                    end
+                    else begin
+                        illegal_instr = 1'b1;
+                    end
+                end
+
+                // funct3 111 : REMUW (M_EXT only)
+                `FN_REMUW: begin
+                    if (funct7 == `F7_M_EXT) begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = funct7;
+                    end
+                    else begin
+                        illegal_instr = 1'b1;
+                    end
+                end
+
+                default: begin
+                    illegal_instr = 1'b1;
+                end
+            endcase
         end
-
-        `FN_SLL: begin
-            if (funct7 == `F7_BASE) begin
-                reg_write  = 1'b1;
-                alu_ctrl   = funct3;
-                funct7_out = funct7;
-            end
-            else begin
-                illegal_instr = 1'b1;
-            end
-        end
-
-        `FN_SRL_SRA: begin
-            if ((funct7 == `F7_BASE) ||
-                (funct7 == `F7_SUB_SRA)) begin
-                reg_write  = 1'b1;
-                alu_ctrl   = funct3;
-                funct7_out = funct7;
-            end
-            else begin
-                illegal_instr = 1'b1;
-            end
-        end
-
-        default: begin
-            illegal_instr = 1'b1;
-        end
-
-    endcase
-end
             //====================================================================
             // I-TYPE REGISTER-IMMEDIATE OPERATIONS
             //   ADDI, SLLI, SLTI, SLTIU, XORI, SRLI, SRAI, ORI, ANDI
@@ -232,7 +272,70 @@ end
                     end
 
                     `FN_SLL: begin
-                        // SLLI requires funct7 = 0000000 in RV32I
+                        // SLLI in RV64I uses a 6-bit shamt: instruction[25:20].
+                        // The shift-type selector lives in instruction[31:26]
+                        // (funct7[6:1]), and bit 25 (funct7[0]) is shamt[5].
+                        // So we must check only the top 6 bits, not the full
+                        // funct7 — otherwise shamt >= 32 sets bit 25 and a valid
+                        // SLLI is wrongly flagged illegal.
+                        if (funct7[6:1] == 6'b000000) begin
+                            reg_write  = 1'b1;
+                            alu_ctrl   = funct3;
+                            // Forward a clean funct7 so the ALU never sees the
+                            // shamt bit leak into its SRL/SRA/ROT discriminator.
+                            funct7_out = `F7_BASE;
+                        end
+                        else begin
+                            illegal_instr = 1'b1;
+                        end
+                    end
+
+                    `FN_SRL_SRA: begin
+                        // RV64I 6-bit shamt: distinguish SRLI vs SRAI using only
+                        // the top 6 bits of the funct7 field (instruction[31:26]),
+                        // ignoring bit 25 which is shamt[5].
+                        //   SRLI -> 000000 , SRAI -> 010000
+                        if (funct7[6:1] == 6'b000000) begin
+                            reg_write  = 1'b1;
+                            alu_ctrl   = funct3;
+                            funct7_out = `F7_BASE;      // clean SRL selector
+                        end
+                        else if (funct7[6:1] == 6'b010000) begin
+                            reg_write  = 1'b1;
+                            alu_ctrl   = funct3;
+                            funct7_out = `F7_SUB_SRA;   // clean SRA selector
+                        end
+                        else begin
+                            illegal_instr = 1'b1;
+                        end
+                    end
+
+                    default: begin
+                        illegal_instr = 1'b1;
+                    end
+                endcase
+            end
+            //====================================================================
+            // RV64 WORD REGISTER-IMMEDIATE OPERATIONS
+            //   ADDIW, SLLIW, SRLIW, SRAIW
+            //====================================================================
+            `OP_OP_IMM_32: begin
+                alu_a_sel  = `ASEL_RS1;
+                alu_src    = 1'b1;
+                wb_sel     = `WB_ALU;
+                is_word_op = 1'b1;
+
+                case (funct3)
+
+                    // ADDIW
+                    `FN_ADD_SUB: begin
+                        reg_write  = 1'b1;
+                        alu_ctrl   = funct3;
+                        funct7_out = `F7_BASE;
+                    end
+
+                    // SLLIW
+                    `FN_SLL: begin
                         if (funct7 == `F7_BASE) begin
                             reg_write  = 1'b1;
                             alu_ctrl   = funct3;
@@ -243,9 +346,8 @@ end
                         end
                     end
 
+                    // SRLIW / SRAIW
                     `FN_SRL_SRA: begin
-                        // SRLI -> 0000000
-                        // SRAI -> 0100000
                         if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA)) begin
                             reg_write  = 1'b1;
                             alu_ctrl   = funct3;
@@ -261,56 +363,9 @@ end
                     end
                 endcase
             end
-//====================================================================
-// RV64 WORD REGISTER-IMMEDIATE OPERATIONS
-//   ADDIW, SLLIW, SRLIW, SRAIW
-//====================================================================
-`OP_OP_IMM_32: begin
-    alu_a_sel = `ASEL_RS1;
-    alu_src   = 1'b1;
-    wb_sel    = `WB_ALU;
-    is_word_op = 1'b1;
-    case (funct3)
-
-        // ADDIW
-        `FN_ADD_SUB: begin
-            reg_write  = 1'b1;
-            alu_ctrl   = funct3;
-            funct7_out = `F7_BASE;
-        end
-
-        // SLLIW
-        `FN_SLL: begin
-            if (funct7 == `F7_BASE) begin
-                reg_write  = 1'b1;
-                alu_ctrl   = funct3;
-                funct7_out = funct7;
-            end
-            else begin
-                illegal_instr = 1'b1;
-            end
-        end
-
-        // SRLIW / SRAIW
-        `FN_SRL_SRA: begin
-            if ((funct7 == `F7_BASE) || (funct7 == `F7_SUB_SRA)) begin
-                reg_write  = 1'b1;
-                alu_ctrl   = funct3;
-                funct7_out = funct7;
-            end
-            else begin
-                illegal_instr = 1'b1;
-            end
-        end
-
-        default: begin
-            illegal_instr = 1'b1;
-        end
-    endcase
-end
             //====================================================================
             // LOADS
-            //   LB, LH, LW, LBU, LHU
+            //   LB, LH, LW, LD, LBU, LHU, LWU
             //====================================================================
             `OP_LOAD: begin
                 alu_a_sel = `ASEL_RS1;
@@ -338,7 +393,7 @@ end
 
             //====================================================================
             // STORES
-            //   SB, SH, SW
+            //   SB, SH, SW, SD
             //====================================================================
             `OP_STORE: begin
                 alu_a_sel = `ASEL_RS1;
@@ -448,6 +503,6 @@ end
 
         endcase
 
-       
-    end 
+    end
+
 endmodule
