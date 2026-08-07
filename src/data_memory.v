@@ -35,7 +35,37 @@ module data_memory #(
     output reg [XLEN-1:0]       read_data,
     output reg                  misaligned_access,
     output reg                  illegal_funct3,
-    output reg                  addr_oob
+    output reg                  addr_oob,
+
+    //========================================================================
+    // SECOND READ PORT - for the ML accelerator's DMA engine
+    //========================================================================
+    // A read-only doubleword port, independent of the CPU's port above.
+    //
+    // Safe to add without arbitration: the accelerator only uses it while it is
+    // busy, and the CPU is stalled polling ML_STATUS during that window. The
+    // memory is asynchronous-read, so this is just a second combinational view
+    // of the same array - no extra storage, no write path, and the CPU's port is
+    // completely unaffected.
+    //
+    // Fault checking is deliberately NOT replicated here: the DMA reads whole
+    // doublewords at aligned addresses by construction.
+    input      [ADDR_WIDTH-1:0] dma_addr,      // byte address, doubleword-aligned
+    output     [XLEN-1:0]       dma_rdata,
+
+    //========================================================================
+    // DMA WRITE PORT - for the accelerator's result write-back
+    //========================================================================
+    // Lets the accelerator write results straight to RAM instead of software
+    // reading them back one LD at a time. Same safety argument as the read
+    // port: the accelerator only writes while it is busy, and the CPU is
+    // stalled polling ML_STATUS during that window, so the two never contend.
+    //
+    // Doubleword-only and aligned by construction, so no width decode or fault
+    // checking is needed here.
+    input                       dma_we,
+    input      [ADDR_WIDTH-1:0] dma_waddr,
+    input      [XLEN-1:0]       dma_wdata
 );
 
     //========================================================================
@@ -145,6 +175,34 @@ module data_memory #(
           mem[local_idx + 2],
           mem[local_idx + 1],
           mem[local_idx + 0] };
+
+    //========================================================================
+    // DMA WRITE PORT (ML accelerator result write-back)
+    //========================================================================
+    // Plain little-endian doubleword write. Independent of the CPU's write
+    // path above - see the port declaration for why no arbitration is needed.
+    always @(posedge clk) begin
+        if (dma_we) begin
+            mem[dma_waddr + 0] <= dma_wdata[7:0];
+            mem[dma_waddr + 1] <= dma_wdata[15:8];
+            mem[dma_waddr + 2] <= dma_wdata[23:16];
+            mem[dma_waddr + 3] <= dma_wdata[31:24];
+            mem[dma_waddr + 4] <= dma_wdata[39:32];
+            mem[dma_waddr + 5] <= dma_wdata[47:40];
+            mem[dma_waddr + 6] <= dma_wdata[55:48];
+            mem[dma_waddr + 7] <= dma_wdata[63:56];
+        end
+    end
+
+    //========================================================================
+    // SECOND READ PORT (ML accelerator DMA)
+    //========================================================================
+    // Plain little-endian doubleword read. No fault checking - see the port
+    // declaration.
+    assign dma_rdata = { mem[dma_addr + 7], mem[dma_addr + 6],
+                         mem[dma_addr + 5], mem[dma_addr + 4],
+                         mem[dma_addr + 3], mem[dma_addr + 2],
+                         mem[dma_addr + 1], mem[dma_addr + 0] };
 
     //========================================================================
     // ASYNCHRONOUS READ
