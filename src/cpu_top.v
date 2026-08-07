@@ -30,8 +30,36 @@ module cpu_top #(
     parameter ILEN     = 32,  // instruction bits
     parameter ADDR_W   = XLEN,  // architectural address width (for PC and effective addresses)
     parameter INST_ADDR_WIDTH = 10,//Rom// instruction memory address width (number of address bits)2^10 = 1024 instruction memory locations/index range
-    parameter DATA_ADDR_WIDTH = 8,//ram// data memory address width (number of address bits)2^8 = 256 data memory locations/index range
-    parameter MMIO_ADDRESS    = {DATA_ADDR_WIDTH{1'b1}}
+    // Data memory address width. 2^11 = 2048 bytes.
+    //
+    // Widened from 8 (256 B) because the ML accelerator's DMA reads matrices
+    // straight out of RAM, and 192 usable bytes could not even hold a 4x4 GEMM
+    // (384 B). At 2 KB an 8x8 int8 GEMM fits comfortably - the output matrix C
+    // dominates, since accumulated values stay 64-bit even when operands are
+    // packed int8.
+    parameter DATA_ADDR_WIDTH = 11,
+    // MMIO output port. Must be 8-byte aligned: software writes it with SD, and
+    // RISC-V only permits SD at doubleword-aligned addresses. The old value of
+    // 0xFF (all ones) was NOT reachable by a compliant SD - its low 3 bits are
+    // 111, so a conformant core must trap the store as misaligned. 0xF8 is the
+    // last doubleword-aligned slot in the 256-byte data space.
+    parameter MMIO_ADDRESS    = {{(DATA_ADDR_WIDTH-3){1'b1}}, 3'b000},
+    // ML accelerator register block: 8 registers, 8 BYTES APART, at 0xC0..0xFF.
+    //
+    // Doubleword spacing is required, not cosmetic: RISC-V requires SD/LD to be
+    // 8-byte aligned, and software delivers 64-bit packed operands with SD. Byte-
+    // spaced registers would put ML_A at a misaligned address, making it
+    // unreachable by any spec-conformant store.
+    //
+    // 0xFF (out_port) falls inside this range but is excluded by is_mmio_addr.
+    // ML accelerator register block: 16 registers, 8 bytes apart, at
+    // 0x780..0x7F7. Doubleword spacing is required (RISC-V permits SD/LD only at
+    // 8-byte-aligned addresses); 16 slots instead of 8 gives the DMA engine its
+    // own source/count registers rather than bit-packing them into ML_LEN.
+    //
+    // 0x7F8 (out_port) sits just above the block and is excluded by is_mmio_addr.
+    parameter ML_BASE         = 11'h780,
+    parameter ACC_WIDTH       = 128
 )(
     input  clk,
     input  reset,
@@ -132,14 +160,58 @@ module cpu_top #(
     wire is_mmio_addr;
     wire is_mmio_write;
 
+    // ML accelerator (memory-mapped). Occupies ML_BASE .. ML_BASE+7, which sits
+    // below MMIO_ADDRESS (0xFF) so the existing out_port behavior is unchanged.
+    wire                is_ml_addr;
+    wire                is_ml_write;
+    wire                is_ml_read;
+    wire [XLEN-1:0]     ml_rdata;
+
+    // ML accelerator DMA port into data memory.
+    wire [DATA_ADDR_WIDTH-1:0] ml_dma_addr;
+    wire [XLEN-1:0]            ml_dma_rdata;
+
+    // ML accelerator DMA write-back port.
+    wire                       ml_dma_we;
+    wire [DATA_ADDR_WIDTH-1:0] ml_dma_waddr;
+    wire [XLEN-1:0]            ml_dma_wdata;
+
     //========================================================================
     // 9. FETCH FAULT / MEMORY FAULT AGGREGATION
     //========================================================================
     assign fetch_fault = instr_misaligned || instr_addr_oob;
 
+    //------------------------------------------------------------------------
+    // Address alignment.
+    //
+    // data_memory also computes a misalignment flag, but only for accesses it
+    // actually sees - and it is deasserted for MMIO and ML accelerator
+    // addresses, so its flag reads 0 for exactly the addresses that bypass it.
+    // Relying on it alone lets a misaligned SD to out_port or an accelerator
+    // register through unchecked, which RISC-V forbids.
+    //
+    // This check is derived from the address and funct3 alone, so it holds for
+    // every destination: RAM, MMIO, and the accelerator alike.
+    //------------------------------------------------------------------------
+    wire [2:0] access_addr_lsb = alu_result[2:0];
+
+    reg  addr_unaligned;
+    always @(*) begin
+        case (funct3[1:0])
+            2'b00:   addr_unaligned = 1'b0;                  // byte:  always ok
+            2'b01:   addr_unaligned = access_addr_lsb[0];    // half:  2-byte
+            2'b10:   addr_unaligned = |access_addr_lsb[1:0]; // word:  4-byte
+            2'b11:   addr_unaligned = |access_addr_lsb[2:0]; // dword: 8-byte
+            default: addr_unaligned = 1'b0;
+        endcase
+    end
+
+    wire access_misaligned = (mem_read || mem_write) && addr_unaligned;
+
     assign mem_fault =
         ((mem_read || mem_write) &&
-         (data_misaligned || data_illegal_funct3 || data_addr_oob));
+         (data_misaligned || data_illegal_funct3 || data_addr_oob)) ||
+        access_misaligned;
 
     assign core_fault = illegal_instr || fetch_fault || mem_fault;
 
@@ -148,11 +220,11 @@ module cpu_top #(
 
     assign mem_read_safe  = mem_read  && !illegal_instr && !fetch_fault &&
                             !data_misaligned && !data_illegal_funct3 &&
-                            !data_addr_oob;
+                            !data_addr_oob && !access_misaligned;
 
     assign mem_write_safe = mem_write && !illegal_instr && !fetch_fault &&
                             !data_misaligned && !data_illegal_funct3 &&
-                            !data_addr_oob;
+                            !data_addr_oob && !access_misaligned;
 
     assign jump_safe   = jump   && !core_fault;
     assign jalr_safe   = jalr   && !core_fault;
@@ -200,10 +272,15 @@ module cpu_top #(
     //========================================================================
     // 13. WRITE-BACK SELECTION
     //========================================================================
+    // A load from the ML accelerator block returns its register, not RAM data.
+    // The accelerator drives ml_rdata combinationally, matching the async read
+    // path the CPU already expects from data_memory.
+    wire [XLEN-1:0] load_data = is_ml_addr ? ml_rdata : mem_read_data;
+
     assign final_write_data =
-        (wb_sel == `WB_ALU) ? alu_result    :
-        (wb_sel == `WB_MEM) ? mem_read_data :
-        (wb_sel == `WB_PC4) ? pc_plus_4     :
+        (wb_sel == `WB_ALU) ? alu_result :
+        (wb_sel == `WB_MEM) ? load_data  :
+        (wb_sel == `WB_PC4) ? pc_plus_4  :
                               alu_result;
 
     //========================================================================
@@ -219,6 +296,58 @@ module cpu_top #(
         else if (is_mmio_write)
             out_port <= reg_read2;
     end
+
+    //========================================================================
+    // 14b. ML ACCELERATOR (MEMORY-MAPPED)
+    //========================================================================
+    // The accelerator occupies the top 128 bytes of the data address space:
+    // 16 registers, 8 bytes apart, at 0x780..0x7F7. Software talks to it with
+    // ordinary SD/LD - no new instructions.
+    //
+    // Doubleword spacing is required, not cosmetic: RISC-V permits SD/LD only at
+    // 8-byte-aligned addresses. The register index is therefore address bits
+    // [6:3] - 4 bits, 16 slots.
+    //
+    //   0x780 -> idx 0  ML_CTRL      0x7B0 -> idx  6  ML_LEN
+    //   0x788 -> idx 1  ML_STATUS    0x7B8 -> idx  7  ML_SRC_A
+    //   0x790 -> idx 2  ML_A         0x7C0 -> idx  8  ML_SRC_B
+    //   0x798 -> idx 3  ML_B         0x7C8 -> idx  9  ML_CNT
+    //   0x7A0 -> idx 4  ML_ACC_LO
+    //   0x7A8 -> idx 5  ML_ACC_HI
+    //
+    // 0x7F8 (out_port) also falls in this range; is_mmio_addr excludes it, and
+    // it is checked first everywhere the two could collide.
+    assign is_ml_addr =
+        (alu_result[DATA_ADDR_WIDTH-1:7] == ML_BASE[DATA_ADDR_WIDTH-1:7]) &&
+        !is_mmio_addr;
+
+    assign is_ml_write = mem_write_safe && is_ml_addr;
+    assign is_ml_read  = mem_read_safe  && is_ml_addr;
+
+    ml_accel #(
+        .XLEN      (XLEN),
+        .ACC_WIDTH (ACC_WIDTH),
+        .MEM_AW    (DATA_ADDR_WIDTH)
+    ) u_ml_accel (
+        .clk       (clk),
+        .rst_n     (!reset),
+        .sel       (is_ml_write || is_ml_read),
+        .we        (is_ml_write),
+        .reg_idx   (alu_result[6:3]),
+        .wdata     (reg_read2),
+        .rdata     (ml_rdata),
+
+        // DMA read port into data memory. The accelerator fetches its own
+        // operands instead of having software store them one at a time.
+        .dma_addr  (ml_dma_addr),
+        .dma_rdata (ml_dma_rdata),
+
+        // DMA write-back port. Results go straight to RAM instead of being
+        // read back one LD at a time.
+        .dma_we    (ml_dma_we),
+        .dma_waddr (ml_dma_waddr),
+        .dma_wdata (ml_dma_wdata)
+    );
 
     //========================================================================
     // 15. MODULE INSTANTIATIONS
@@ -322,21 +451,30 @@ module cpu_top #(
     //------------------------------------------------------------------------
     // Data Memory
     //------------------------------------------------------------------------
-    // Normal RAM writes are suppressed for MMIO destinations.
+    // Normal RAM accesses are suppressed for MMIO and ML accelerator addresses.
     data_memory #(
         .ADDR_WIDTH(DATA_ADDR_WIDTH),
         .XLEN(XLEN)
     ) d_mem (
         .clk               (clk),
-        .mem_read          (mem_read_safe && !is_mmio_addr),
-        .mem_write         (mem_write_safe && !is_mmio_addr),
+        .mem_read          (mem_read_safe  && !is_mmio_addr && !is_ml_addr),
+        .mem_write         (mem_write_safe && !is_mmio_addr && !is_ml_addr),
         .funct3            (funct3),
         .address           (alu_result), 
         .write_data        (reg_read2),
         .read_data         (mem_read_data),
         .misaligned_access (data_misaligned),
         .illegal_funct3    (data_illegal_funct3),
-        .addr_oob          (data_addr_oob)
+        .addr_oob          (data_addr_oob),
+
+        // Second read port: the ML accelerator's DMA engine.
+        .dma_addr          (ml_dma_addr),
+        .dma_rdata         (ml_dma_rdata),
+
+        // Write port: the accelerator's result write-back.
+        .dma_we            (ml_dma_we),
+        .dma_waddr         (ml_dma_waddr),
+        .dma_wdata         (ml_dma_wdata)
     );
 
 endmodule
