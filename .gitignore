@@ -29,3 +29,8 @@ Thumbs.db
 # Python bytecode cache
 __pycache__/
 *.pyc
+
+# Generated compliance vectors (produced by tools/gen_*_vectors.py)
+imm_vec.txt
+alu_vec.txt
+branch_vec.txt
