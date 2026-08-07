@@ -13,6 +13,10 @@ module tb_cpu();
     localparam MAX_CYCLES     = 300;
     localparam STUCK_PC_LIMIT = 15;
 
+    // What program.asm is expected to publish to the MMIO output port.
+    // The program computes 10 + 20 and stores it to out_port (0xFF).
+    localparam [63:0] EXPECTED_OUT = 64'd30;
+
     //====================================================================
     // CLOCK / RESET
     //====================================================================
@@ -125,11 +129,18 @@ module tb_cpu();
             last_pc <= uut.pc_out;
 
             if (stuck_pc_count >= STUCK_PC_LIMIT) begin
-                $display("[%0t ns] INFO: PC stopped changing at 0x%08h", $time, uut.pc_out);
+                $display("[%0t ns] INFO: PC stopped changing at 0x%08h (halt)",
+                         $time, uut.pc_out);
 
-                // Treat this as a clean stop for general-purpose simulation.
+                // A parked PC is how a program deliberately halts (JAL x0, self).
+                // Whether that is a PASS depends on the result it produced, so
+                // check the expected output rather than assuming failure.
                 test_done <= 1'b1;
-                test_pass <= 1'b0;
+                test_pass <= (out_port == EXPECTED_OUT);
+
+                if (out_port !== EXPECTED_OUT)
+                    $display("[%0t ns] ERROR: out_port = %0d, expected %0d",
+                             $time, out_port, EXPECTED_OUT);
             end
         end
     end

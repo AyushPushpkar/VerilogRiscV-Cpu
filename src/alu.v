@@ -35,6 +35,20 @@ module alu #(
 
     reg [31:0] wres;
 
+    // Signed intermediates for the word divide/remainder ops.
+    //
+    // These exist because of a Verilog signedness trap: in a ternary, if ANY
+    // operand is unsigned, the WHOLE expression is evaluated as unsigned - so
+    //
+    //     wres = (B_w == 0) ? 32'hFFFFFFFF : (A_w_s / B_w_s);
+    //
+    // silently demotes the signed division to an unsigned one, because the
+    // 32'hFFFFFFFF literal is unsigned. DIVW(-1, 2) then returns 0x7FFFFFFF
+    // instead of 0. Computing the division into a signed reg FIRST keeps it
+    // signed, and only then is it selected against the unsigned literals.
+    reg signed [31:0] divw_q;
+    reg signed [31:0] remw_r;
+
     wire signed [2*XLEN-1:0] mul_ss = $signed(A) * $signed(B);
     wire        [2*XLEN-1:0] mul_uu = A * B;
 
@@ -83,19 +97,34 @@ module alu #(
 
                 // DIVW (funct3 100)
                 `FN_DIV: begin
-                    if (funct7 == `F7_M_EXT)
-                        wres = (B_w == 0) ? 32'hFFFFFFFF :
-                               ((A_w == 32'h80000000 && B_w == 32'hFFFFFFFF)
-                                ? 32'h80000000 : A_w_s / B_w_s);
+                    if (funct7 == `F7_M_EXT) begin
+                        // Compute the signed quotient on its own first - see the
+                        // note at divw_q. Folding it into the ternary below would
+                        // demote it to an unsigned divide.
+                        divw_q = A_w_s / B_w_s;
+
+                        if (B_w == 0)
+                            wres = 32'hFFFFFFFF;                       // div by 0
+                        else if (A_w == 32'h80000000 && B_w == 32'hFFFFFFFF)
+                            wres = 32'h80000000;                       // overflow
+                        else
+                            wres = divw_q;
+                    end
                     else wres = 0;
                 end
 
                 // REMW
                 `FN_REM: begin
-                    if (funct7 == `F7_M_EXT)
-                        wres = (B_w == 0) ? A_w :
-                               ((A_w == 32'h80000000 && B_w == 32'hFFFFFFFF)
-                                ? 0 : A_w_s % B_w_s);
+                    if (funct7 == `F7_M_EXT) begin
+                        remw_r = A_w_s % B_w_s;
+
+                        if (B_w == 0)
+                            wres = A_w;                                // rem by 0
+                        else if (A_w == 32'h80000000 && B_w == 32'hFFFFFFFF)
+                            wres = 32'h00000000;                       // overflow
+                        else
+                            wres = remw_r;
+                    end
                     else wres = 0;
                 end
 
