@@ -1,4 +1,7 @@
 {
   "verilog.linting.linter": "iverilog",
-  "verilog.linting.iverilog.arguments": "-I src"
+  "verilog.linting.iverilog.arguments": "-g2012 -y src",
+  "verilog.linting.iverilog.includePath": [
+    "src"
+  ]
 }

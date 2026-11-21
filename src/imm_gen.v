@@ -1,5 +1,5 @@
 //================================================================================
-// Immediate Generator - RV32I Standard Formats
+// Immediate Generator - RV64I Standard Formats
 //================================================================================
 // Decodes and constructs 32-bit immediates from standard RV32I instruction
 // formats.

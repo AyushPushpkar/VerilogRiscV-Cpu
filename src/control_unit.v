@@ -71,8 +71,8 @@ module control_unit(
 
             //====================================================================
             // R-TYPE REGISTER-REGISTER OPERATIONS
-            //   RV32I: ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND
-            //   RV32M: MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU
+            //   RV64I: ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND
+            //   RV64M: MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU
             //====================================================================
             `OP_OP: begin
                 alu_a_sel = `ASEL_RS1;
